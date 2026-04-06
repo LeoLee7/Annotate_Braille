@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Braille Editor 3D</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#222;overflow:hidden;height:100vh}
+.app{display:grid;grid-template-columns:1fr 280px;grid-template-rows:40px 1fr;height:100vh}
+.mid{grid-column:1;grid-row:2}
+.topbar{grid-column:1/-1;background:#222;border-bottom:1px solid #333;display:flex;align-items:center;padding:0 12px;gap:10px;z-index:10}
+.topbar h1{font-size:13px;font-weight:600;color:#ccc;white-space:nowrap}
+.topbar .hint{font-size:11px;color:#666;margin-left:8px}
+.topbar .spacer{flex:1}
+.topbar button{font-size:11px;padding:5px 12px;border:none;border-radius:4px;cursor:pointer}
+.topbar input[type=file]{display:none}
+.btn-p{background:#4a9eff;color:#fff}.btn-p:hover{background:#3a8eef}
+.btn-s{background:#444;color:#ccc}.btn-s:hover{background:#555}
+.mid{display:flex;overflow:hidden}
+#canvas-container{position:relative;overflow:hidden;background:#2a2a2a;flex:1}
+#info-overlay{position:absolute;bottom:10px;left:10px;color:#888;font-size:11px;z-index:5;pointer-events:none}
+.v-resizer{width:5px;background:#333;cursor:col-resize;flex-shrink:0}.v-resizer:hover{background:#555}
+#map-container{position:relative;flex:0 0 35%;min-width:150px;overflow:hidden}
+#leaflet-map{position:absolute;inset:0}
+.map-search{position:absolute;top:8px;right:8px;z-index:1000;display:flex;gap:3px}
+.map-search input{padding:4px 6px;font-size:11px;border:1px solid #aaa;border-radius:3px;width:150px}
+.map-search button{padding:4px 8px;font-size:10px;border:none;border-radius:3px;background:#fff;cursor:pointer}
+.sidebar{background:#fff;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:12px}
+.field label{display:block;font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.field input{width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px}
+.field input:focus{outline:none;border-color:#888}
+.braille-box{background:#f8f8f8;border:1px solid #ddd;border-radius:6px;padding:10px;text-align:center}
+.braille-box .dots{font-size:30px;color:#111;letter-spacing:5px;margin:4px 0}
+.braille-box .meta{font-size:9px;color:#888}
+.info{font-size:11px;color:#888;line-height:1.5}.info b{color:#555}
+.empty{text-align:center;padding:30px 0;color:#bbb;font-size:11px}
+.legend{font-size:11px;flex:1;overflow-y:auto}
+.legend table{width:100%;border-collapse:collapse}
+.legend th{text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:3px 0;border-bottom:1px solid #eee}
+.legend td{padding:2px 0;border-bottom:1px solid #f5f5f5;cursor:pointer}
+.legend tr:hover td{background:#f0f8ff}
+.legend .bc{font-size:13px;color:#111}
+.status{font-size:10px;color:#888;padding:4px 0;border-top:1px solid #eee;text-align:center}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="topbar">
+  <h1>Braille Editor 3D</h1>
+  <button class="btn-s" id="btn-load">Load STL</button>
+  <input type="file" id="file-input" accept=".stl">
+  <button class="btn-s" id="btn-topview" style="background:#2a6e3f;color:#fff">Top View</button>
+  <button class="btn-s" id="btn-place" style="background:#8b5e00;color:#fff">+ Free Label</button>
+  <span class="hint" id="mode-hint">Click a rooftop to select</span>
+  <div class="spacer"></div>
+  <button class="btn-s" id="btn-import">Import Labels</button>
+  <button class="btn-p" id="btn-export">Export Labels JSON</button>
+  <button class="btn-p" id="btn-download-stl" style="background:#2a8f4f">Download Merged STL</button>
+  <button class="btn-s" id="btn-download-legend">Legend TXT</button>
+</div>
+<div class="mid">
+<div id="canvas-container">
+  <div id="info-overlay">Drag to rotate, scroll to zoom, right-drag to pan</div>
+</div>
+<div class="v-resizer" id="v-resizer"></div>
+<div id="map-container">
+  <div id="leaflet-map"></div>
+  <div class="map-search">
+    <input id="map-search-input" type="text" placeholder="Search...">
+    <button id="map-search-btn">Go</button>
+  </div>
+</div>
+</div>
+<div class="sidebar">
+  <div id="block-detail"><div class="empty">Load an STL file, then click a building surface</div></div>
+  <hr style="border:0;border-top:1px solid #eee">
+  <div class="legend" id="legend"></div>
+  <div class="status" id="status">No STL loaded</div>
+</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.164.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.164.1/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+
+// ---- Braille ----
+const UEB = {
+  A:'⠁',B:'⠃',C:'⠉',D:'⠙',E:'⠑',F:'⠋',G:'⠛',H:'⠓',I:'⠊',J:'⠚',
+  K:'⠅',L:'⠇',M:'⠍',N:'⠝',O:'⠕',P:'⠏',Q:'⠟',R:'⠗',S:'⠎',T:'⠞',
+  U:'⠥',V:'⠧',W:'⠺',X:'⠭',Y:'⠽',Z:'⠵',
+  '1':'⠁','2':'⠃','3':'⠉','4':'⠙','5':'⠑',
+  '6':'⠋','7':'⠛','8':'⠓','9':'⠊','0':'⠚'
+};
+function toBraille(code) {
+  return [...code.toUpperCase()].map(c => {
+    if (c === ' ') return '⠀'; // braille blank (U+2800) for space
+    return UEB[c] || '⠿';
+  }).join('');
+}
+
+// UEB dot positions (1-6) for STL geometry
+const UEB_DOTS = {
+  A:[1],B:[1,2],C:[1,4],D:[1,4,5],E:[1,5],F:[1,2,4],G:[1,2,4,5],H:[1,2,5],I:[2,4],J:[2,4,5],
+  K:[1,3],L:[1,2,3],M:[1,3,4],N:[1,3,4,5],O:[1,3,5],P:[1,2,3,4],Q:[1,2,3,4,5],R:[1,2,3,5],
+  S:[2,3,4],T:[2,3,4,5],U:[1,3,6],V:[1,2,3,6],W:[2,4,5,6],X:[1,3,4,6],Y:[1,3,4,5,6],Z:[1,3,5,6],
+  '1':[1],'2':[1,2],'3':[1,4],'4':[1,4,5],'5':[1,5],
+  '6':[1,2,4],'7':[1,2,4,5],'8':[1,2,5],'9':[2,4],'0':[2,4,5],
+};
+
+// Braille physical parameters (mm)
+const DOT_R = 0.8, DOT_H = 0.8, DOT_SP = 2.5, CELL_GAP = 6.0;
+
+function createBrailleMesh(code, cx, cy, z, rotation = 0, scale = 1.0) {
+  const s = scale;
+  const dotR = DOT_R * s, dotH = DOT_H * s, dotSp = DOT_SP * s, cellGap = CELL_GAP * s;
+
+  const offsets = [];
+  let cellX = 0;
+  for (const ch of code.toUpperCase()) {
+    for (const d of (UEB_DOTS[ch] || [])) {
+      const row = (d - 1) % 3, col = (d - 1) >= 3 ? 1 : 0;
+      offsets.push([cellX + col * dotSp, -row * dotSp]);
+    }
+    cellX += cellGap;
+  }
+  const labelW = (code.length - 1) * cellGap + dotSp;
+  const labelH = 2 * dotSp;
+
+  const group = new THREE.Group();
+  const mat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+  for (const [dx, dy] of offsets) {
+    let lx = dx - labelW / 2;
+    let ly = dy + labelH / 2;
+    if (rotation) {
+      const rad = rotation * Math.PI / 180;
+      const cos = Math.cos(rad), sin = Math.sin(rad);
+      const rx = lx * cos - ly * sin;
+      const ry = lx * sin + ly * cos;
+      lx = rx; ly = ry;
+    }
+    // Match Python apply_labels.py: cylinder stem + full sphere cap
+    const embed = 0.3 * s;
+    const stemTop = z + dotH - dotR;
+    const stemH = Math.max(stemTop - (z - embed), 0.05);
+    const stemCenter = (z - embed) + stemH / 2;
+    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(dotR, dotR, stemH, 12), mat);
+    cyl.rotation.x = Math.PI / 2;
+    cyl.position.set(cx + lx, cy + ly, stemCenter);
+    group.add(cyl);
+    // Full sphere at stem top (no orientation issues, matches trimesh icosphere)
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(dotR, 8, 6), mat);
+    sphere.position.set(cx + lx, cy + ly, stemTop);
+    group.add(sphere);
+  }
+  group.userData = { code, rotation, scale };
+  return group;
+}
+
+// Track braille meshes per region
+const brailleMeshes = new Map(); // regionId -> THREE.Group
+
+function updateBrailleMesh(region) {
+  if (brailleMeshes.has(region.id)) {
+    scene.remove(brailleMeshes.get(region.id));
+    brailleMeshes.delete(region.id);
+  }
+  if (!region.code) return;
+  const mesh = createBrailleMesh(
+    region.code, region.cx, region.cy, region.z,
+    region.rotation || 0, region.scale || 1.0);
+  scene.add(mesh);
+  brailleMeshes.set(region.id, mesh);
+}
+
+// ---- Three.js setup ----
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x2a2a2a);
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+camera.position.set(100, 100, 250);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// Lighting
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(100, 200, 150);
+scene.add(dirLight);
+
+function resize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', resize);
+resize();
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ---- STL loading and region detection ----
+let stlMesh = null;
+let regions = [];       // array of { faceIndices, center, z, area, bbox, name, code, description }
+let selectedRegion = null;
+let regionColors = null; // per-face color buffer
+let stlFileName = '';
+
+const BASE_COLOR = new THREE.Color(0.85, 0.85, 0.85);
+const HOVER_COLOR = new THREE.Color(0.7, 0.85, 1.0);
+const SELECTED_COLOR = new THREE.Color(1.0, 0.92, 0.5);
+const LABELED_COLOR = new THREE.Color(0.7, 0.95, 0.7);
+
+function loadSTL(buffer, fileName) {
+  stlFileName = fileName;
+  // Remove old mesh
+  if (stlMesh) scene.remove(stlMesh);
+
+  const loader = new STLLoader();
+  const geometry = loader.parse(buffer);
+  geometry.computeVertexNormals();
+
+  // Center the geometry
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  const cx = (box.max.x + box.min.x) / 2;
+  const cy = (box.max.y + box.min.y) / 2;
+  geometry.translate(-cx, -cy, 0);
+
+  // Per-face colors
+  const faceCount = geometry.attributes.position.count / 3;
+  const colors = new Float32Array(faceCount * 3 * 3);
+  for (let i = 0; i < faceCount * 3; i++) {
+    colors[i * 3] = BASE_COLOR.r;
+    colors[i * 3 + 1] = BASE_COLOR.g;
+    colors[i * 3 + 2] = BASE_COLOR.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const material = new THREE.MeshPhongMaterial({
+    vertexColors: true, flatShading: true,
+    side: THREE.DoubleSide,
+  });
+  stlMesh = new THREE.Mesh(geometry, material);
+  scene.add(stlMesh);
+
+  // Fit camera
+  const size = box.max.clone().sub(box.min);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  camera.position.set(0, -maxDim * 0.3, maxDim * 1.2);
+  controls.target.set(0, 0, size.z / 2);
+  controls.update();
+
+  // Detect regions (connected top-faces)
+  detectRegions(geometry);
+  updateStatus();
+  renderLegend();
+  renderDetail();
+}
+
+function detectRegions(geometry) {
+  const pos = geometry.attributes.position;
+  const nor = geometry.attributes.normal;
+  const faceCount = pos.count / 3;
+
+  // Build face data: center position for each face
+  const faces = [];
+  for (let i = 0; i < faceCount; i++) {
+    const i3 = i * 3;
+    const cx = (pos.getX(i3) + pos.getX(i3+1) + pos.getX(i3+2)) / 3;
+    const cy = (pos.getY(i3) + pos.getY(i3+1) + pos.getY(i3+2)) / 3;
+    const cz = (pos.getZ(i3) + pos.getZ(i3+1) + pos.getZ(i3+2)) / 3;
+    faces.push({ cx, cy, cz, regionId: -1 });
+  }
+
+  // Build adjacency via shared edges (vertex position hashing)
+  const edgeMap = new Map();
+  function vkey(x, y, z) {
+    return `${Math.round(x*50)},${Math.round(y*50)},${Math.round(z*50)}`;
+  }
+  for (let i = 0; i < faceCount; i++) {
+    const i3 = i * 3;
+    const verts = [];
+    for (let v = 0; v < 3; v++) {
+      verts.push(vkey(pos.getX(i3+v), pos.getY(i3+v), pos.getZ(i3+v)));
+    }
+    for (let e = 0; e < 3; e++) {
+      const a = verts[e], b = verts[(e+1)%3];
+      const key = a < b ? a+'|'+b : b+'|'+a;
+      if (!edgeMap.has(key)) edgeMap.set(key, []);
+      edgeMap.get(key).push(i);
+    }
+  }
+  const neighbors = Array.from({length: faceCount}, () => []);
+  for (const faceList of edgeMap.values()) {
+    for (let i = 0; i < faceList.length; i++) {
+      for (let j = i+1; j < faceList.length; j++) {
+        neighbors[faceList[i]].push(faceList[j]);
+        neighbors[faceList[j]].push(faceList[i]);
+      }
+    }
+  }
+
+  // Height-discontinuity segmentation:
+  // Two adjacent faces belong to the same region ONLY if their
+  // z-height difference is small. Height jumps = boundaries.
+  const Z_TOL = 0.5;
+  regions = [];
+  let regionId = 0;
+  for (let i = 0; i < faceCount; i++) {
+    if (faces[i].regionId >= 0) continue;
+    const z0 = faces[i].cz;
+    const queue = [i];
+    const region = [];
+    while (queue.length > 0) {
+      const fi = queue.pop();
+      if (faces[fi].regionId >= 0) continue;
+      if (Math.abs(faces[fi].cz - z0) > Z_TOL) continue;
+      faces[fi].regionId = regionId;
+      region.push(fi);
+      for (const ni of neighbors[fi]) {
+        if (faces[ni].regionId < 0 && Math.abs(faces[ni].cz - z0) <= Z_TOL) {
+          queue.push(ni);
+        }
+      }
+    }
+    if (region.length >= 2) {
+      let sumX=0, sumY=0, sumZ=0;
+      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+      for (const fi of region) {
+        sumX += faces[fi].cx; sumY += faces[fi].cy; sumZ += faces[fi].cz;
+        minX = Math.min(minX, faces[fi].cx); maxX = Math.max(maxX, faces[fi].cx);
+        minY = Math.min(minY, faces[fi].cy); maxY = Math.max(maxY, faces[fi].cy);
+      }
+      const n = region.length;
+      regions.push({
+        id: regionId + 1,
+        faceIndices: region,
+        cx: sumX/n, cy: sumY/n, z: sumZ/n,
+        w: maxX - minX, h: maxY - minY,
+        area: n,
+        name: '', code: '', description: '',
+      });
+    }
+    regionId++;
+  }
+  regions.sort((a, b) => b.area - a.area);
+  regions.forEach((r, i) => r.id = i + 1);
+
+  console.log(`Detected ${regions.length} surface regions`);
+}
+
+// ---- Raycasting and selection ----
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function getRegionAtFace(faceIndex) {
+  return regions.find(r => r.faceIndices.includes(faceIndex));
+}
+
+function highlightRegion(region, color) {
+  if (!stlMesh || !region) return;
+  const colors = stlMesh.geometry.attributes.color;
+  for (const fi of region.faceIndices) {
+    const i3 = fi * 3;
+    for (let v = 0; v < 3; v++) {
+      colors.setXYZ(i3 + v, color.r, color.g, color.b);
+    }
+  }
+  colors.needsUpdate = true;
+}
+
+function resetAllColors() {
+  if (!stlMesh) return;
+  const colors = stlMesh.geometry.attributes.color;
+  const count = colors.count;
+  for (let i = 0; i < count; i++) {
+    colors.setXYZ(i, BASE_COLOR.r, BASE_COLOR.g, BASE_COLOR.b);
+  }
+  // Re-apply labeled regions
+  for (const r of regions) {
+    if (r.code) highlightRegion(r, LABELED_COLOR);
+  }
+  // Re-apply selected
+  if (selectedRegion) highlightRegion(selectedRegion, SELECTED_COLOR);
+  colors.needsUpdate = true;
+}
+
+let isDragging = false;
+let mouseDownPos = { x: 0, y: 0 };
+let movingLabel = null;  // region being dragged
+
+renderer.domElement.addEventListener('mousedown', e => {
+  mouseDownPos = { x: e.clientX, y: e.clientY };
+  isDragging = false;
+
+  // Check if clicking on an existing braille label mesh
+  if (!stlMesh || placementMode) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  // Test braille meshes first
+  const brailleObjects = [];
+  for (const [rid, grp] of brailleMeshes) {
+    grp.children.forEach(c => { c.userData._rid = rid; brailleObjects.push(c); });
+  }
+  const bHits = raycaster.intersectObjects(brailleObjects);
+  if (bHits.length > 0) {
+    const rid = bHits[0].object.userData._rid;
+    const region = regions.find(r => r.id === rid);
+    if (region) {
+      movingLabel = region;
+      selectedRegion = region;
+      controls.enabled = false; // disable orbit while dragging
+      renderer.domElement.style.cursor = 'move';
+      resetAllColors();
+      if (region.faceIndices && region.faceIndices.length) highlightRegion(region, SELECTED_COLOR);
+      renderDetail();
+    }
+  }
+});
+
+renderer.domElement.addEventListener('mousemove', e => {
+  const dx = e.clientX - mouseDownPos.x;
+  const dy = e.clientY - mouseDownPos.y;
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) isDragging = true;
+
+  // Drag label: move it along the surface, snap to highest z
+  if (movingLabel && isDragging) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObject(stlMesh);
+    if (hits.length > 0) {
+      // Use the hit x,y but find the TOP surface z by casting a ray downward
+      const p = hits[0].point;
+      const topRay = new THREE.Raycaster(
+        new THREE.Vector3(p.x, p.y, 20), new THREE.Vector3(0, 0, -1));
+      const topHits = topRay.intersectObject(stlMesh);
+      const topZ = topHits.length > 0 ? topHits[0].point.z : p.z;
+      movingLabel.cx = p.x;
+      movingLabel.cy = p.y;
+      movingLabel.z = topZ;  // always snap to top surface
+      updateBrailleMesh(movingLabel);
+    }
+  }
+});
+
+let freeLabels = [];
+let nextFreeId = 10000;
+renderer.domElement.addEventListener('mouseup', e => {
+  if (movingLabel && isDragging) {
+    // Finished dragging: snap to top surface z
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObject(stlMesh);
+    if (hits.length > 0) {
+      const p = hits[0].point;
+      const topRay = new THREE.Raycaster(
+        new THREE.Vector3(p.x, p.y, 20), new THREE.Vector3(0, 0, -1));
+      const topHits = topRay.intersectObject(stlMesh);
+      movingLabel.cx = p.x;
+      movingLabel.cy = p.y;
+      movingLabel.z = topHits.length > 0 ? topHits[0].point.z : p.z;
+      updateBrailleMesh(movingLabel);
+    }
+    renderDetail();
+    autoSave();
+  }
+  movingLabel = null;
+  controls.enabled = true;
+  renderer.domElement.style.cursor = placementMode ? 'crosshair' : 'default';
+});
+
+let placementMode = false;
+
+// Toggle placement mode
+document.getElementById('btn-place').addEventListener('click', () => {
+  placementMode = !placementMode;
+  const btn = document.getElementById('btn-place');
+  if (placementMode) {
+    btn.style.background = '#ff6600';
+    btn.textContent = 'Click to Place...';
+    document.getElementById('mode-hint').textContent = 'Click anywhere on the mesh to place a free label';
+    renderer.domElement.style.cursor = 'crosshair';
+  } else {
+    btn.style.background = '#8b5e00';
+    btn.textContent = '+ Free Label';
+    document.getElementById('mode-hint').textContent = 'Click a rooftop to select';
+    renderer.domElement.style.cursor = 'default';
+  }
+});
+
+// Top-down view
+document.getElementById('btn-topview').addEventListener('click', () => {
+  if (!stlMesh) return;
+  const box = stlMesh.geometry.boundingBox;
+  const size = box.max.clone().sub(box.min);
+  const maxDim = Math.max(size.x, size.y);
+  // Position camera directly above, looking down
+  camera.position.set(0, 0, maxDim * 1.5);
+  camera.up.set(0, 1, 0);
+  controls.target.set(0, 0, 0);
+  controls.update();
+});
+
+renderer.domElement.addEventListener('click', e => {
+  if (isDragging) return;
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  if (!stlMesh) return;
+  const hits = raycaster.intersectObject(stlMesh);
+  if (hits.length === 0) {
+    if (!placementMode) {
+      selectedRegion = null;
+      resetAllColors();
+      renderDetail();
+    }
+    return;
+  }
+
+  const hit = hits[0];
+  const faceIndex = hit.faceIndex;
+
+  // Placement mode: place a free label, snap to top surface
+  if (placementMode) {
+    const p = hit.point;
+    // Cast ray downward from above to get the top surface z
+    const topRay = new THREE.Raycaster(
+      new THREE.Vector3(p.x, p.y, 20), new THREE.Vector3(0, 0, -1));
+    const topHits = topRay.intersectObject(stlMesh);
+    const topZ = topHits.length > 0 ? topHits[0].point.z : p.z;
+    const freeLabel = {
+      id: nextFreeId++,
+      isFree: true,
+      faceIndices: [],
+      cx: p.x, cy: p.y, z: topZ,
+      w: 0, h: 0, area: 0,
+      name: '', code: '', description: '',
+      rotation: 0, scale: 1.0,
+    };
+    freeLabels.push(freeLabel);
+    regions.push(freeLabel);
+    selectedRegion = freeLabel;
+    resetAllColors();
+    renderDetail();
+    // Exit placement mode
+    placementMode = false;
+    document.getElementById('btn-place').style.background = '#8b5e00';
+    document.getElementById('btn-place').textContent = '+ Free Label';
+    document.getElementById('mode-hint').textContent = 'Click a rooftop to select';
+    renderer.domElement.style.cursor = 'default';
+    return;
+  }
+
+  // Check if clicking on braille dots (select that label)
+  const brailleObjects = [];
+  for (const [rid, grp] of brailleMeshes) {
+    grp.children.forEach(c => { c.userData._rid = rid; brailleObjects.push(c); });
+  }
+  const bHits = raycaster.intersectObjects(brailleObjects);
+  if (bHits.length > 0) {
+    const rid = bHits[0].object.userData._rid;
+    const labelRegion = regions.find(r => r.id === rid);
+    if (labelRegion) {
+      selectedRegion = labelRegion;
+      resetAllColors();
+      if (labelRegion.faceIndices && labelRegion.faceIndices.length) highlightRegion(labelRegion, SELECTED_COLOR);
+      renderDetail();
+      return;
+    }
+  }
+
+  // Normal click: select a region by its surface face
+  const region = getRegionAtFace(faceIndex);
+  if (region) {
+    selectedRegion = region;
+    resetAllColors();
+    highlightRegion(region, SELECTED_COLOR);
+    renderDetail();
+  }
+});
+
+// ---- UI ----
+function renderDetail() {
+  const el = document.getElementById('block-detail');
+  if (!selectedRegion) {
+    el.innerHTML = '<div class="empty">Click a building rooftop to select it</div>';
+    return;
+  }
+  const r = selectedRegion;
+  const braille = r.code ? toBraille(r.code) : '';
+  const isFree = r.isFree;
+  const scale = r.scale || 1.0;
+  el.innerHTML = `
+    <div style="font-weight:600;margin-bottom:6px">${isFree ? 'Free Label' : 'Region'} #${r.id}</div>
+    <div class="info">${isFree ? '<b>Free placement</b>' : '<b>Faces:</b> '+r.faceIndices.length+' &nbsp; <b>Size:</b> '+r.w.toFixed(0)+'x'+r.h.toFixed(0)+'mm'}<br>
+    <b>Position:</b> (${r.cx.toFixed(1)}, ${r.cy.toFixed(1)}) &nbsp; <b>Z:</b> ${r.z.toFixed(2)}mm</div>
+    <div class="field" style="margin-top:8px">
+      <label>English Name</label>
+      <input id="inp-name" value="${r.name||''}" placeholder="e.g. Administration">
+    </div>
+    <div class="field">
+      <label>Braille Code</label>
+      <input id="inp-code" value="${r.code||''}" placeholder="e.g. ADM" style="width:100px;display:inline-block" >
+    </div>
+    <div class="braille-box">
+      <div class="meta">Braille Preview</div>
+      <div class="dots">${braille||'...'}</div>
+      <div class="meta" id="braille-meta">${r.code ? r.code+' ('+r.code.length+' cells)' : ''}</div>
+    </div>
+    <div class="field">
+      <label>Description (legend)</label>
+      <input id="inp-desc" value="${r.description||''}" placeholder="Full name for legend">
+    </div>
+    <div class="field">
+      <label>Rotation: <span id="rot-val">${r.rotation||0}</span>&deg;</label>
+      <input id="inp-rot" type="range" min="0" max="360" step="15" value="${r.rotation||0}" style="width:100%">
+    </div>
+    <div class="field">
+      <label>Size: <span id="scale-val">${(scale*100).toFixed(0)}</span>%</label>
+      <input id="inp-scale" type="range" min="50" max="200" step="10" value="${(scale*100).toFixed(0)}" style="width:100%">
+    </div>
+    <button class="btn-p" style="width:100%;padding:7px;font-size:12px;border:none;border-radius:4px;cursor:pointer" id="btn-save-label">Save Label</button>
+    <button class="btn-s" style="width:100%;padding:5px;font-size:11px;margin-top:4px;border:none;border-radius:4px;cursor:pointer" id="btn-clear-label">${isFree ? 'Delete Free Label' : 'Clear Label'}</button>
+  `;
+
+  document.getElementById('inp-code').addEventListener('input', function() {
+    const c = this.value.toUpperCase();
+    const sc = selectedRegion ? (selectedRegion.scale||1) : 1;
+    const widthMm = c.length > 0 ? ((c.length-1)*6*sc + 2.5*sc).toFixed(1) : '0';
+    document.querySelector('.braille-box .dots').textContent = c ? toBraille(c) : '...';
+    document.getElementById('braille-meta').textContent = c
+      ? `${c} (${c.length} cells, ${widthMm}mm wide, dot ${(0.8*sc).toFixed(1)}mm)`
+      : '';
+  });
+  document.getElementById('inp-rot').addEventListener('input', function() {
+    document.getElementById('rot-val').textContent = this.value;
+    if (selectedRegion && selectedRegion.code) {
+      selectedRegion.rotation = parseInt(this.value);
+      updateBrailleMesh(selectedRegion);
+    }
+  });
+  document.getElementById('inp-scale').addEventListener('input', function() {
+    document.getElementById('scale-val').textContent = this.value;
+    if (selectedRegion && selectedRegion.code) {
+      selectedRegion.scale = parseInt(this.value) / 100;
+      updateBrailleMesh(selectedRegion);
+    }
+  });
+  document.getElementById('btn-save-label').addEventListener('click', saveLabel);
+  document.getElementById('btn-clear-label').addEventListener('click', clearLabel);
+}
+
+// Auto-save: persist all labels to server after every change
+function autoSave() {
+  if (!stlFileName) return;
+  const allLabeled = regions.filter(r => r.code);
+  const out = {
+    stl_file: stlFileName,
+    blocks: allLabeled.map(r => ({
+      id: r.id, cx: +r.cx.toFixed(1), cy: +r.cy.toFixed(1), z: +r.z.toFixed(2),
+      w: +(r.w||0).toFixed(1), h: +(r.h||0).toFixed(1),
+      x_min: +((r.cx||0) - (r.w||0)/2).toFixed(1),
+      x_max: +((r.cx||0) + (r.w||0)/2).toFixed(1),
+      y_min: +((r.cy||0) - (r.h||0)/2).toFixed(1),
+      y_max: +((r.cy||0) + (r.h||0)/2).toFixed(1),
+      area: r.area||0, name: r.name, code: r.code,
+      description: r.description,
+      braille: toBraille(r.code),
+      rotation: r.rotation||0, scale: r.scale||1.0,
+      isFree: !!r.isFree,
+    })),
+  };
+  fetch('/save_labels', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(out)
+  }).then(() => {
+    document.getElementById('status').textContent =
+      `${regions.length} regions | ${allLabeled.length} labeled | auto-saved`;
+  }).catch(() => {});
+}
+
+function saveLabel() {
+  if (!selectedRegion) return;
+  selectedRegion.name = document.getElementById('inp-name').value;
+  selectedRegion.code = document.getElementById('inp-code').value.toUpperCase();
+  selectedRegion.description = document.getElementById('inp-desc').value;
+  selectedRegion.rotation = parseInt(document.getElementById('inp-rot').value) || 0;
+  selectedRegion.scale = parseInt(document.getElementById('inp-scale').value) / 100;
+  updateBrailleMesh(selectedRegion);
+  resetAllColors();
+  renderLegend();
+  updateStatus();
+  autoSave();
+}
+
+function clearLabel() {
+  if (!selectedRegion) return;
+  if (selectedRegion.isFree) {
+    updateBrailleMesh(selectedRegion);
+    selectedRegion.code = '';
+    updateBrailleMesh(selectedRegion);
+    regions = regions.filter(r => r.id !== selectedRegion.id);
+    freeLabels = freeLabels.filter(r => r.id !== selectedRegion.id);
+    selectedRegion = null;
+  } else {
+    selectedRegion.name = '';
+    selectedRegion.code = '';
+    selectedRegion.description = '';
+    selectedRegion.rotation = 0;
+    selectedRegion.scale = 1.0;
+    updateBrailleMesh(selectedRegion);
+  }
+  resetAllColors();
+  renderDetail();
+  renderLegend();
+  updateStatus();
+  autoSave();
+}
+
+function renderLegend() {
+  const el = document.getElementById('legend');
+  const labeled = regions.filter(r => r.code);
+  if (!labeled.length) { el.innerHTML = '<div class="empty">No labels yet</div>'; return; }
+  let html = `<div style="font-weight:600;margin-bottom:6px">Labels (${labeled.length}/${regions.length})</div><table><tr><th>Code</th><th>Braille</th><th>Name</th></tr>`;
+  labeled.forEach(r => {
+    html += `<tr data-rid="${r.id}"><td>${r.code}</td><td class="bc">${toBraille(r.code)}</td><td>${r.description||r.name}</td></tr>`;
+  });
+  html += '</table>';
+  el.innerHTML = html;
+  el.querySelectorAll('tr[data-rid]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const rid = parseInt(tr.dataset.rid);
+      selectedRegion = regions.find(r => r.id === rid);
+      resetAllColors();
+      if (selectedRegion) highlightRegion(selectedRegion, SELECTED_COLOR);
+      renderDetail();
+    });
+  });
+}
+
+function updateStatus() {
+  const labeled = regions.filter(r => r.code).length;
+  document.getElementById('status').textContent =
+    `${regions.length} regions | ${labeled} labeled` + (stlFileName ? ` | ${stlFileName}` : '');
+}
+
+// ---- File I/O ----
+document.getElementById('btn-load').addEventListener('click', () => {
+  document.getElementById('file-input').click();
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => loadSTL(reader.result, file.name);
+  reader.readAsArrayBuffer(file);
+});
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  const labeled = regions.filter(r => r.code);
+  if (!labeled.length) return;
+  const out = {
+    stl_file: stlFileName,
+    blocks: labeled.map(r => ({
+      id: r.id, cx: +r.cx.toFixed(1), cy: +r.cy.toFixed(1), z: +r.z.toFixed(2),
+      w: +r.w.toFixed(1), h: +r.h.toFixed(1),
+      x_min: +(r.cx - r.w/2).toFixed(1), x_max: +(r.cx + r.w/2).toFixed(1),
+      y_min: +(r.cy - r.h/2).toFixed(1), y_max: +(r.cy + r.h/2).toFixed(1),
+      area: r.area, name: r.name, code: r.code, description: r.description,
+      braille: toBraille(r.code), rotation: r.rotation || 0, scale: r.scale || 1.0,
+    })),
+  };
+  // Also try saving to server
+  fetch('/save_labels', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(out) }).catch(()=>{});
+  // Download
+  const blob = new Blob([JSON.stringify(out, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = stlFileName.replace('.stl','_labels.json');
+  a.click();
+});
+
+document.getElementById('btn-import').addEventListener('click', () => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json';
+  inp.addEventListener('change', () => {
+    const f = inp.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const imported = JSON.parse(reader.result);
+      if (imported.blocks) {
+        // All labels placed by exact coordinates. No region matching.
+        imported.blocks.forEach(ib => {
+          if (!ib.code) return;
+          const fl = {
+            id: nextFreeId++, isFree: true, faceIndices: [],
+            cx: ib.cx, cy: ib.cy, z: ib.z,
+            w: 0, h: 0, area: 0,
+            name: ib.name || '', code: ib.code || '',
+            description: ib.description || '',
+            rotation: ib.rotation || 0, scale: ib.scale || 1.0,
+          };
+          freeLabels.push(fl);
+          regions.push(fl);
+          updateBrailleMesh(fl);
+        });
+        resetAllColors();
+        renderLegend();
+        renderDetail();
+        updateStatus();
+      }
+    };
+    reader.readAsText(f);
+  });
+  inp.click();
+});
+
+// ---- Synthesize & Download Merged STL ----
+document.getElementById('btn-download-stl').addEventListener('click', () => {
+  if (!stlMesh) { alert('Load an STL file first.'); return; }
+  const labeled = regions.filter(r => r.code);
+  if (!labeled.length) { alert('No labels to merge. Add braille labels first.'); return; }
+
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = 'Generating merged STL...';
+
+  setTimeout(() => {
+    try {
+      const exportScene = new THREE.Scene();
+
+      // Clone STL geometry without vertex colors
+      const geomClone = stlMesh.geometry.clone();
+      geomClone.deleteAttribute('color');
+      exportScene.add(new THREE.Mesh(geomClone, new THREE.MeshBasicMaterial()));
+
+      // Clone all braille dot meshes
+      for (const [rid, grp] of brailleMeshes) {
+        exportScene.add(grp.clone());
+      }
+
+      const exporter = new STLExporter();
+      const result = exporter.parse(exportScene, { binary: true });
+
+      const blob = new Blob([result], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = stlFileName.replace('.stl', '_braille.stl');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      geomClone.dispose();
+      statusEl.textContent = `Downloaded: ${a.download} (${labeled.length} labels merged)`;
+    } catch (e) {
+      console.error('STL export error:', e);
+      statusEl.textContent = 'Export failed: ' + e.message;
+    }
+  }, 50);
+});
+
+document.getElementById('btn-download-legend').addEventListener('click', () => {
+  const labeled = regions.filter(r => r.code);
+  if (!labeled.length) { alert('No labels yet.'); return; }
+
+  const base = stlFileName.replace('.stl', '');
+  let text = `Braille Legend: ${base}\n${'='.repeat(50)}\n`;
+  text += `${'Code'.padStart(5)}  ${'Braille'.padStart(8)}  Name\n${'-'.repeat(50)}\n`;
+  for (const r of labeled) {
+    const name = r.description || r.name || r.code;
+    text += `${r.code.padStart(5)}  ${toBraille(r.code).padStart(8)}  ${name}\n`;
+  }
+
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${base}_legend.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+});
+
+// Drag & drop STL files
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = [...e.dataTransfer.files].find(f => f.name.endsWith('.stl'));
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = () => loadSTL(reader.result, file.name);
+    reader.readAsArrayBuffer(file);
+  }
+});
+
+// ---- Leaflet OSM Map ----
+const leafletMap = L.map('leaflet-map').setView([37.3195, -122.0449], 17);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 20, attribution: '&copy; OpenStreetMap'
+}).addTo(leafletMap);
+
+// Search
+function searchOSM() {
+  const q = document.getElementById('map-search-input').value.trim();
+  if (!q) return;
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`)
+    .then(r => r.json()).then(res => {
+      if (res.length) leafletMap.setView([+res[0].lat, +res[0].lon], 17);
+    });
+}
+document.getElementById('map-search-btn').addEventListener('click', searchOSM);
+document.getElementById('map-search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchOSM();
+});
+
+// Resizable panel
+const vResizer = document.getElementById('v-resizer');
+const canvasCont = document.getElementById('canvas-container');
+const mapCont = document.getElementById('map-container');
+let vResizing = false;
+vResizer.addEventListener('mousedown', e => { vResizing = true; e.preventDefault(); });
+document.addEventListener('mousemove', e => {
+  if (!vResizing) return;
+  const mid = document.querySelector('.mid');
+  const rect = mid.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const pct = (x / rect.width) * 100;
+  canvasCont.style.flex = `0 0 ${pct}%`;
+  mapCont.style.flex = `0 0 ${100 - pct}%`;
+  resize();
+  leafletMap.invalidateSize();
+});
+document.addEventListener('mouseup', () => { vResizing = false; });
+
+// Fix leaflet size after layout settles
+setTimeout(() => leafletMap.invalidateSize(), 500);
+</script>
+</body>
+</html>
