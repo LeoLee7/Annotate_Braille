@@ -1,6 +1,6 @@
 # Tactile Map Braille Editor
 
-Add braille labels to 3D-printed tactile maps (Touch Mapper STL files) so blind users can identify buildings by touch.
+A complementary tool for [Touch Mapper](https://touch-mapper.org/) that lets you manually annotate braille labels onto tactile map STL files. Touch Mapper generates 3D-printable maps from OpenStreetMap data, but the output lacks text labels. This editor fills that gap: load a Touch Mapper STL, label buildings with braille codes, and download a print-ready STL with embedded braille dots.
 
 **Fully client-side.** No server, no Python, no install. Host on GitHub Pages or open `index.html` directly.
 
@@ -12,7 +12,7 @@ Open `index.html` in any modern browser, or host via GitHub Pages.
 
 ### 1. Load a tactile map
 
-Click **Load STL** or drag-and-drop an STL file. The editor renders the mesh in 3D and automatically detects building regions (connected flat surfaces).
+Get an STL file from [Touch Mapper](https://touch-mapper.org/), then click **Load STL** or drag-and-drop it into the editor. The mesh renders in 3D and building regions (connected flat surfaces) are detected automatically.
 
 ### 2. Label buildings
 
