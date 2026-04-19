@@ -27,6 +27,42 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
 .map-search{position:absolute;top:8px;right:8px;z-index:1000;display:flex;gap:3px}
 .map-search input{padding:4px 6px;font-size:11px;border:1px solid #aaa;border-radius:3px;width:150px}
 .map-search button{padding:4px 8px;font-size:10px;border:none;border-radius:3px;background:#fff;cursor:pointer}
+.osm-status{position:absolute;top:10px;left:60px;z-index:1000;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.92);padding:4px 8px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.25);font-size:11px;font-weight:600;color:#555;cursor:help;transition:all .2s}
+.osm-status .dot{width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0}
+.osm-status.fetching .dot{background:#ffa500;animation:osm-pulse 1s infinite}
+.osm-status.fetching{color:#b36b00}
+.osm-status.ready .dot{background:#2ecc71}
+.osm-status.error .dot{background:#e74c3c}
+.osm-status.error{color:#c0392b}
+@keyframes osm-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.osm-label{background:rgba(255,255,255,.9);border:1px solid #1e6fff;border-radius:3px;padding:1px 4px;font-size:10px;font-weight:600;color:#111;box-shadow:0 1px 2px rgba(0,0,0,.2);white-space:nowrap;pointer-events:none}
+.osm-label::before{border:none!important}
+.map-suggest{position:absolute;top:38px;right:8px;width:220px;background:#fff;border:1px solid #aaa;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.18);z-index:1100;display:none;max-height:260px;overflow-y:auto}
+.map-suggest-item{padding:6px 8px;border-bottom:1px solid #f0f0f0;cursor:pointer;font-size:11px}
+.map-suggest-item:last-child{border-bottom:0}
+.map-suggest-item:hover,.map-suggest-item.active{background:#e8f0fe}
+.map-suggest-item .title{font-weight:600;color:#222}
+.map-suggest-item .sub{font-size:9px;color:#888;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.modal-backdrop{position:fixed;inset:0;background:rgba(20,20,25,.38);display:none;align-items:center;justify-content:center;z-index:10000;animation:modal-fade .15s ease}
+.modal-backdrop.show{display:flex}
+.modal-card{background:#fff;border-radius:10px;padding:20px 22px 16px;max-width:380px;width:90%;box-shadow:0 12px 40px rgba(0,0,0,.28);animation:modal-pop .18s ease}
+.modal-title{font-size:14px;font-weight:700;color:#111;margin-bottom:14px}
+.modal-row{display:flex;gap:10px;margin-bottom:6px;font-size:12px;line-height:1.5}
+.modal-row .k{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.6px;min-width:88px;padding-top:3px;font-weight:700}
+.modal-row .v{color:#222;flex:1;word-break:break-word}
+.modal-note{font-size:10px;color:#888;margin:10px 0 14px;line-height:1.5}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.modal-btn{padding:7px 14px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer;color:#555}
+.modal-btn:hover{background:#f5f5f5}
+.modal-btn.primary{background:#1e6fff;color:#fff;border-color:#1e6fff}
+.modal-btn.primary:hover{background:#1858cc}
+@keyframes modal-fade{from{opacity:0}to{opacity:1}}
+@keyframes modal-pop{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+.osm-controls{position:absolute;top:40px;left:60px;z-index:1000;display:flex;gap:4px}
+.osm-btn{font-size:11px;font-weight:600;padding:4px 8px;border-radius:12px;background:rgba(255,255,255,.92);border:1px solid #aaa;color:#333;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.osm-btn:hover{background:#eef6ff}
+.osm-btn.off{color:#999;border-color:#ccc;background:rgba(240,240,240,.9)}
+.osm-btn.primary{border-color:#1e6fff;color:#1e6fff}
 .sidebar{background:#fff;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:12px}
 .field label{display:block;font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
 .field input{width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px}
@@ -67,6 +103,11 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
 <div class="v-resizer" id="v-resizer"></div>
 <div id="map-container">
   <div id="leaflet-map"></div>
+  <div id="osm-status" class="osm-status" title="OSM cache"><span class="dot"></span></div>
+  <div class="osm-controls">
+    <button id="osm-fetch-now" class="osm-btn primary" title="Fetch OSM buildings for the current view">&#8635; Fetch this view</button>
+  </div>
+  <div id="map-suggest" class="map-suggest"></div>
   <div class="map-search">
     <input id="map-search-input" type="text" placeholder="Search...">
     <button id="map-search-btn">Go</button>
@@ -79,6 +120,19 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
   <div class="legend" id="legend"></div>
   <div class="status" id="status">No STL loaded</div>
 </div>
+</div>
+
+<div id="confirm-modal" class="modal-backdrop">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-title" id="modal-title">Replace OSM link?</div>
+    <div class="modal-row"><span class="k">Currently</span><span class="v" id="modal-current"></span></div>
+    <div class="modal-row"><span class="k">Replace with</span><span class="v" id="modal-new"></span></div>
+    <div class="modal-note">OK overwrites the name, description, braille code and GPS. Cancel keeps the existing label.</div>
+    <div class="modal-actions">
+      <button id="modal-cancel" class="modal-btn">Cancel</button>
+      <button id="modal-ok" class="modal-btn primary">Replace</button>
+    </div>
+  </div>
 </div>
 
 <script type="importmap">
@@ -119,8 +173,73 @@ const UEB_DOTS = {
   '6':[1,2,4],'7':[1,2,4,5],'8':[1,2,5],'9':[2,4],'0':[2,4,5],
 };
 
+// Ordered abbreviation rules ported from annotate_v2.py SMART_ABBREVS.
+// Longer/compound patterns precede shorter ones.
+const SMART_ABBREVS = [
+  [/advanced technology center/i, 'ATC'],
+  [/campus center/i, 'CC'],
+  [/history center/i, 'CHC'],
+  [/learning center/i, 'LC'],
+  [/multicultural center/i, 'MCC'],
+  [/student services/i, 'SS'],
+  [/visual and performing arts/i, 'VPA'],
+  [/library/i, 'LIB'],
+  [/administration/i, 'ADM'],
+  [/bookstore/i, 'BKS'],
+  [/planetarium/i, 'PLN'],
+  [/fitness/i, 'FIT'],
+  [/gymnasium|\bgym\b/i, 'GYM'],
+  [/forum/i, 'FRM'],
+  [/\bgarage\b/i, 'GAR'],
+  [/parking/i, 'PKG'],
+  [/station/i, 'STN'],
+  [/theatre|theater/i, 'THR'],
+  [/museum/i, 'MUS'],
+  [/hotel/i, 'HTL'],
+  [/\bpool\b/i, 'POL'],
+  [/^building\s+([a-z]{1,2}\d{0,2})\b/i, null],
+];
+const INITIAL_STOPWORDS = new Set([
+  'the','of','and','a','an','&',
+  'san','francisco',
+  'hotel','building','center','square','de','anza','college',
+]);
+function makeCode(name, maxLen = 3) {
+  if (!name) return '';
+  for (const [pattern, code] of SMART_ABBREVS) {
+    const m = name.match(pattern);
+    if (m) {
+      if (code) return code;
+      if (m[1]) return m[1].toUpperCase().slice(0, maxLen);
+    }
+  }
+  const words = name.split(/[\s/]+/)
+    .map(w => w.replace(/[^A-Za-z0-9]/g, ''))
+    .filter(w => w && !INITIAL_STOPWORDS.has(w.toLowerCase()));
+  const initials = words.map(w => w[0]).join('').toUpperCase();
+  return initials.slice(0, maxLen)
+    || name.replace(/[^A-Za-z0-9]/g, '').slice(0, maxLen).toUpperCase();
+}
+
 // Braille physical parameters (mm)
 const DOT_R = 0.8, DOT_H = 0.8, DOT_SP = 2.5, CELL_GAP = 6.0;
+
+// Merge-time base slab: required solid material below the lowest sphere point
+const BRAILLE_BASE_SAFETY_MM = 1.0;
+
+// Global UID allocator (format: a1, a2, ...). Prefix fixed per spec.
+const UID_PREFIX = 'a';
+let uidCounter = 0;
+function allocUid() { uidCounter += 1; return UID_PREFIX + uidCounter; }
+function noteExistingUid(uid) {
+  if (typeof uid !== 'string') return;
+  const m = uid.match(/^a(\d+)$/);
+  if (m) uidCounter = Math.max(uidCounter, parseInt(m[1], 10));
+}
+function ensureUid(region) {
+  if (!region.uid) region.uid = allocUid();
+  return region.uid;
+}
 
 function createBrailleMesh(code, cx, cy, z, rotation = 0, scale = 1.0) {
   const s = scale;
@@ -150,20 +269,22 @@ function createBrailleMesh(code, cx, cy, z, rotation = 0, scale = 1.0) {
       const ry = lx * sin + ly * cos;
       lx = rx; ly = ry;
     }
-    // Match Python apply_labels.py: cylinder stem + full sphere cap
-    const embed = 0.3 * s;
-    const stemTop = z + dotH - dotR;
-    const stemH = Math.max(stemTop - (z - embed), 0.05);
-    const stemCenter = (z - embed) + stemH / 2;
-    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(dotR, dotR, stemH, 12), mat);
-    cyl.rotation.x = Math.PI / 2;
-    cyl.position.set(cx + lx, cy + ly, stemCenter);
-    group.add(cyl);
-    // Full sphere at stem top (no orientation issues, matches trimesh icosphere)
+    // Braille dot = hemisphere dome + flat disc cap (watertight). With
+    // DOT_H == DOT_R a hemisphere IS the full dot, no cylinder stem needed.
+    // The tiny embed avoids coincident-plane slicer issues; 0.02mm is below
+    // any realistic rooftop thickness so the dot never pierces the mesh.
+    const embed = 0.02 * s;
+    const baseZ = z - embed;
     const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(dotR, 8, 6), mat);
-    sphere.position.set(cx + lx, cy + ly, stemTop);
+      new THREE.SphereGeometry(dotR, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat);
+    sphere.rotation.x = Math.PI / 2;
+    sphere.position.set(cx + lx, cy + ly, baseZ);
     group.add(sphere);
+    // Flat disc closes the hemisphere's open bottom, normal facing down.
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(dotR, 12), mat);
+    disc.rotation.x = Math.PI;
+    disc.position.set(cx + lx, cy + ly, baseZ);
+    group.add(disc);
   }
   group.userData = { code, rotation, scale };
   return group;
@@ -278,6 +399,23 @@ function loadSTL(buffer, fileName) {
   updateStatus();
   renderLegend();
   renderDetail();
+
+  // Auto-navigate the map to match the STL location. The filename is the only
+  // hint we have (STL files carry no GPS metadata), so we reverse the filename
+  // to a search query: "Union Square_SF.stl" -> "Union Square SF".
+  autoNavigateFromFilename(fileName);
+}
+
+function autoNavigateFromFilename(filename) {
+  if (!filename) return;
+  const q = filename.replace(/\.stl$/i, '').replace(/[_/\-]+/g, ' ').trim();
+  if (q.length < 3) return;
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`)
+    .then(r => r.json()).then(res => {
+      if (res && res.length) {
+        leafletMap.setView([+res[0].lat, +res[0].lon], 18);
+      }
+    }).catch(() => {});
 }
 
 function detectRegions(geometry) {
@@ -362,6 +500,7 @@ function detectRegions(geometry) {
         w: maxX - minX, h: maxY - minY,
         area: n,
         name: '', code: '', description: '',
+        osm: null,
       });
     }
     regionId++;
@@ -569,10 +708,13 @@ renderer.domElement.addEventListener('click', e => {
       w: 0, h: 0, area: 0,
       name: '', code: '', description: '',
       rotation: 0, scale: 1.0,
+      osm: null,
     };
     freeLabels.push(freeLabel);
     regions.push(freeLabel);
     selectedRegion = freeLabel;
+    // Reverse-flow attach: if a map building is waiting, bind it to this free label.
+    consumePendingOsmMatch(freeLabel);
     resetAllColors();
     renderDetail();
     // Exit placement mode
@@ -606,6 +748,8 @@ renderer.domElement.addEventListener('click', e => {
   const region = getRegionAtFace(faceIndex);
   if (region) {
     selectedRegion = region;
+    // Reverse-flow attach: if a map building is waiting, bind it here.
+    if (consumePendingOsmMatch(region)) return;
     resetAllColors();
     highlightRegion(region, SELECTED_COLOR);
     renderDetail();
@@ -623,10 +767,14 @@ function renderDetail() {
   const braille = r.code ? toBraille(r.code) : '';
   const isFree = r.isFree;
   const scale = r.scale || 1.0;
+  const osm = r.osm;
+  const osmLine = osm
+    ? `<br><b>OSM:</b> ${osm.name || '(unnamed)'} &nbsp; <b>GPS:</b> ${(+osm.lat).toFixed(6)}, ${(+osm.lon).toFixed(6)}`
+    : '<br><span style="color:#aaa">No OSM match yet (click a building on the map)</span>';
   el.innerHTML = `
     <div style="font-weight:600;margin-bottom:6px">${isFree ? 'Free Label' : 'Region'} #${r.id}</div>
     <div class="info">${isFree ? '<b>Free placement</b>' : '<b>Faces:</b> '+r.faceIndices.length+' &nbsp; <b>Size:</b> '+r.w.toFixed(0)+'x'+r.h.toFixed(0)+'mm'}<br>
-    <b>Position:</b> (${r.cx.toFixed(1)}, ${r.cy.toFixed(1)}) &nbsp; <b>Z:</b> ${r.z.toFixed(2)}mm</div>
+    <b>Position:</b> (${r.cx.toFixed(1)}, ${r.cy.toFixed(1)}) &nbsp; <b>Z:</b> ${r.z.toFixed(2)}mm${osmLine}</div>
     <div class="field" style="margin-top:8px">
       <label>English Name</label>
       <input id="inp-name" value="${r.name||''}" placeholder="e.g. Administration">
@@ -689,8 +837,11 @@ function autoSave() {
   const allLabeled = regions.filter(r => r.code);
   const out = {
     stl_file: stlFileName,
+    uid_prefix: UID_PREFIX,
+    next_uid: uidCounter + 1,
     blocks: allLabeled.map(r => ({
-      id: r.id, cx: +r.cx.toFixed(1), cy: +r.cy.toFixed(1), z: +r.z.toFixed(2),
+      id: r.id, uid: ensureUid(r),
+      cx: +r.cx.toFixed(1), cy: +r.cy.toFixed(1), z: +r.z.toFixed(2),
       w: +(r.w||0).toFixed(1), h: +(r.h||0).toFixed(1),
       x_min: +((r.cx||0) - (r.w||0)/2).toFixed(1),
       x_max: +((r.cx||0) + (r.w||0)/2).toFixed(1),
@@ -701,6 +852,7 @@ function autoSave() {
       braille: toBraille(r.code),
       rotation: r.rotation||0, scale: r.scale||1.0,
       isFree: !!r.isFree,
+      osm: r.osm || null,
     })),
   };
   fetch('/save_labels', {
@@ -719,6 +871,7 @@ function saveLabel() {
   selectedRegion.description = document.getElementById('inp-desc').value;
   selectedRegion.rotation = parseInt(document.getElementById('inp-rot').value) || 0;
   selectedRegion.scale = parseInt(document.getElementById('inp-scale').value) / 100;
+  if (selectedRegion.code) ensureUid(selectedRegion);
   updateBrailleMesh(selectedRegion);
   resetAllColors();
   renderLegend();
@@ -794,13 +947,17 @@ document.getElementById('btn-export').addEventListener('click', () => {
   if (!labeled.length) return;
   const out = {
     stl_file: stlFileName,
+    uid_prefix: UID_PREFIX,
+    next_uid: uidCounter + 1,
     blocks: labeled.map(r => ({
-      id: r.id, cx: +r.cx.toFixed(1), cy: +r.cy.toFixed(1), z: +r.z.toFixed(2),
+      id: r.id, uid: ensureUid(r),
+      cx: +r.cx.toFixed(1), cy: +r.cy.toFixed(1), z: +r.z.toFixed(2),
       w: +r.w.toFixed(1), h: +r.h.toFixed(1),
       x_min: +(r.cx - r.w/2).toFixed(1), x_max: +(r.cx + r.w/2).toFixed(1),
       y_min: +(r.cy - r.h/2).toFixed(1), y_max: +(r.cy + r.h/2).toFixed(1),
       area: r.area, name: r.name, code: r.code, description: r.description,
       braille: toBraille(r.code), rotation: r.rotation || 0, scale: r.scale || 1.0,
+      osm: r.osm || null,
     })),
   };
   // Also try saving to server
@@ -823,16 +980,23 @@ document.getElementById('btn-import').addEventListener('click', () => {
     reader.onload = () => {
       const imported = JSON.parse(reader.result);
       if (imported.blocks) {
+        // Restore UID counter from file before re-allocating.
+        imported.blocks.forEach(ib => noteExistingUid(ib.uid));
+        if (typeof imported.next_uid === 'number') {
+          uidCounter = Math.max(uidCounter, imported.next_uid - 1);
+        }
         // All labels placed by exact coordinates. No region matching.
         imported.blocks.forEach(ib => {
           if (!ib.code) return;
           const fl = {
             id: nextFreeId++, isFree: true, faceIndices: [],
+            uid: ib.uid || allocUid(),
             cx: ib.cx, cy: ib.cy, z: ib.z,
             w: 0, h: 0, area: 0,
             name: ib.name || '', code: ib.code || '',
             description: ib.description || '',
             rotation: ib.rotation || 0, scale: ib.scale || 1.0,
+            osm: ib.osm || null,
           };
           freeLabels.push(fl);
           regions.push(fl);
@@ -872,6 +1036,35 @@ document.getElementById('btn-download-stl').addEventListener('click', () => {
         exportScene.add(grp.clone());
       }
 
+      // Adaptive bottom slab: guarantee at least BRAILLE_BASE_SAFETY_MM of
+      // solid material below the lowest braille sphere. Idempotent across
+      // repeated merges of an already-merged STL (no accumulation).
+      geomClone.computeBoundingBox();
+      const bb = geomClone.boundingBox;
+      // Lowest dot-geometry point via bbox. Works for full sphere, hemisphere,
+      // cylinder stem, or any future cap shape.
+      let lowestDotBottom = Infinity;
+      for (const [rid, grp] of brailleMeshes) {
+        const box = new THREE.Box3().setFromObject(grp);
+        if (isFinite(box.min.z)) lowestDotBottom = Math.min(lowestDotBottom, box.min.z);
+      }
+      const requiredBottom = lowestDotBottom - BRAILLE_BASE_SAFETY_MM;
+      let baseGeom = null;
+      let addedThickness = 0;
+      if (isFinite(requiredBottom) && requiredBottom < bb.min.z) {
+        addedThickness = bb.min.z - requiredBottom;
+        const sx = bb.max.x - bb.min.x;
+        const sy = bb.max.y - bb.min.y;
+        baseGeom = new THREE.BoxGeometry(sx, sy, addedThickness);
+        const baseMesh = new THREE.Mesh(baseGeom, new THREE.MeshBasicMaterial());
+        baseMesh.position.set(
+          (bb.min.x + bb.max.x) / 2,
+          (bb.min.y + bb.max.y) / 2,
+          bb.min.z - addedThickness / 2
+        );
+        exportScene.add(baseMesh);
+      }
+
       const exporter = new STLExporter();
       const result = exporter.parse(exportScene, { binary: true });
 
@@ -886,7 +1079,11 @@ document.getElementById('btn-download-stl').addEventListener('click', () => {
       URL.revokeObjectURL(url);
 
       geomClone.dispose();
-      statusEl.textContent = `Downloaded: ${a.download} (${labeled.length} labels merged)`;
+      if (baseGeom) baseGeom.dispose();
+      const baseMsg = addedThickness > 0
+        ? `+${addedThickness.toFixed(2)}mm base`
+        : 'base already sufficient';
+      statusEl.textContent = `Downloaded: ${a.download} (${labeled.length} labels, ${baseMsg})`;
     } catch (e) {
       console.error('STL export error:', e);
       statusEl.textContent = 'Export failed: ' + e.message;
@@ -933,18 +1130,590 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 20, attribution: '&copy; OpenStreetMap'
 }).addTo(leafletMap);
 
-// Search
-function searchOSM() {
-  const q = document.getElementById('map-search-input').value.trim();
-  if (!q) return;
-  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`)
-    .then(r => r.json()).then(res => {
-      if (res.length) leafletMap.setView([+res[0].lat, +res[0].lon], 17);
-    });
+// Google-Maps-style search with live suggestions from Nominatim.
+// Debounced at 350ms to stay within Nominatim's 1 req/sec usage policy.
+const searchInput = document.getElementById('map-search-input');
+const suggestEl = document.getElementById('map-suggest');
+let suggestTimer = null;
+let currentSuggestions = [];
+let highlightIdx = -1;
+
+function escapeHtml(s) {
+  return (s || '').replace(/[<>&"']/g, c => (
+    { '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;' }[c]));
 }
-document.getElementById('map-search-btn').addEventListener('click', searchOSM);
-document.getElementById('map-search-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') searchOSM();
+
+async function fetchSuggestions(q) {
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(q)}`,
+      { headers: { 'Accept-Language': 'en' } });
+    const results = await r.json();
+    if (!Array.isArray(results) || results.length === 0) { hideSuggest(); return; }
+    currentSuggestions = results;
+    highlightIdx = -1;
+    suggestEl.innerHTML = results.map((res, i) => {
+      const parts = (res.display_name || '').split(',').map(x => x.trim());
+      const title = parts[0] || res.name || 'Unnamed';
+      const sub = parts.slice(1).join(', ');
+      return `<div class="map-suggest-item" data-idx="${i}">`
+        + `<div class="title">${escapeHtml(title)}</div>`
+        + `<div class="sub">${escapeHtml(sub)}</div></div>`;
+    }).join('');
+    suggestEl.style.display = 'block';
+    suggestEl.querySelectorAll('.map-suggest-item').forEach(el => {
+      el.addEventListener('click', () => pickSuggestion(currentSuggestions[+el.dataset.idx]));
+    });
+  } catch (e) { hideSuggest(); }
+}
+
+function pickSuggestion(res) {
+  if (!res) return;
+  leafletMap.setView([+res.lat, +res.lon], 17);
+  searchInput.value = (res.display_name || '').split(',')[0];
+  hideSuggest();
+}
+
+function hideSuggest() {
+  suggestEl.style.display = 'none';
+  currentSuggestions = [];
+  highlightIdx = -1;
+}
+
+function updateHighlight() {
+  suggestEl.querySelectorAll('.map-suggest-item').forEach((el, i) => {
+    el.classList.toggle('active', i === highlightIdx);
+  });
+}
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(suggestTimer);
+  const q = searchInput.value.trim();
+  if (q.length < 2) { hideSuggest(); return; }
+  suggestTimer = setTimeout(() => fetchSuggestions(q), 350);
+});
+
+searchInput.addEventListener('keydown', e => {
+  const visible = suggestEl.style.display === 'block';
+  if (visible && e.key === 'ArrowDown') {
+    e.preventDefault();
+    highlightIdx = Math.min(currentSuggestions.length - 1, highlightIdx + 1);
+    updateHighlight();
+  } else if (visible && e.key === 'ArrowUp') {
+    e.preventDefault();
+    highlightIdx = Math.max(-1, highlightIdx - 1);
+    updateHighlight();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (visible && highlightIdx >= 0) {
+      pickSuggestion(currentSuggestions[highlightIdx]);
+    } else if (currentSuggestions.length) {
+      // No arrow selection: pick the top suggestion.
+      pickSuggestion(currentSuggestions[0]);
+    } else {
+      // No suggestions yet: fire a direct search with whatever is typed.
+      const q = searchInput.value.trim();
+      if (q) fetchSuggestions(q).then(() => {
+        if (currentSuggestions.length) pickSuggestion(currentSuggestions[0]);
+      });
+    }
+  } else if (e.key === 'Escape') {
+    hideSuggest();
+  }
+});
+
+document.getElementById('map-search-btn').addEventListener('click', () => {
+  if (currentSuggestions.length) pickSuggestion(currentSuggestions[0]);
+  else {
+    const q = searchInput.value.trim();
+    if (q) fetchSuggestions(q).then(() => {
+      if (currentSuggestions.length) pickSuggestion(currentSuggestions[0]);
+    });
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.map-search') && !e.target.closest('.map-suggest')) {
+    hideSuggest();
+  }
+});
+
+// Fast click → building match via prefetched in-memory polygon cache.
+// Leaflet's map tiles are raster images, so building geometry/names must still
+// come from Overpass. But we fetch the whole visible area ONCE per view, then
+// clicks test point-in-polygon locally (zero latency, feels like Google Maps).
+const OVERPASS_ENDPOINTS = [
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+  'https://lz4.overpass-api.de/api/interpreter',
+  'https://z.overpass-api.de/api/interpreter',
+  'https://overpass.osm.ch/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+
+// Per-endpoint cooldown: if a mirror returns 403/429, don't retry it for 5 min.
+// Prevents us from hammering a rate-limiting server on every subsequent click.
+const OVERPASS_COOLDOWN_MS = 5 * 60 * 1000;
+const overpassCooldown = new Map(); // url -> timestamp until which to skip
+
+async function fetchWithTimeout(url, opts, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
+  finally { clearTimeout(t); }
+}
+
+async function queryOverpass(q, onStatus) {
+  let lastErr;
+  const now = Date.now();
+  for (const url of OVERPASS_ENDPOINTS) {
+    if ((overpassCooldown.get(url) || 0) > now) continue;
+    const host = new URL(url).hostname;
+    if (onStatus) onStatus(`Prefetching OSM via ${host}...`);
+    try {
+      const resp = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(q),
+      }, 12000);
+      if (resp.status === 403 || resp.status === 429) {
+        overpassCooldown.set(url, Date.now() + OVERPASS_COOLDOWN_MS);
+        throw new Error(`HTTP ${resp.status} (rate-limited; cooling down)`);
+      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    } catch (err) { lastErr = err; }
+  }
+  throw lastErr || new Error('All Overpass mirrors rate-limited or unreachable');
+}
+
+async function nominatimReverse(lat, lng) {
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=19`;
+  const resp = await fetchWithTimeout(url, { headers: { 'Accept-Language': 'en' } }, 8000);
+  if (!resp.ok) throw new Error(`Nominatim HTTP ${resp.status}`);
+  return await resp.json();
+}
+
+// In-memory cache of buildings in the current (or recently-visited) map view.
+// Persisted to localStorage so second visits are instant with no fetch.
+const OSM_CACHE_KEY = 'osmBuildingCache_v2'; // v2: buildings enriched with POI names
+const OSM_BOUNDS_KEY = 'osmCachedBounds_v2';
+const OSM_CACHE_MAX_BYTES = 4 * 1024 * 1024; // rough cap before dropping oldest
+
+let osmBuildingCache = [];
+let cachedBoundsKeys = new Set();
+let prefetchInFlight = null;
+let osmPolyLayer = L.layerGroup().addTo(leafletMap);
+
+// Status pill on the map. Collapses to just a dot when idle/ready, expands
+// with inline text while fetching so the user knows what's happening and when
+// data will be ready.
+const osmDot = document.getElementById('osm-status');
+function setOsmDot(state, tip) {
+  osmDot.classList.remove('fetching', 'ready', 'error');
+  if (state) osmDot.classList.add(state);
+  const labels = { fetching: 'Parsing map...', error: 'OSM failed' };
+  const label = labels[state];
+  osmDot.innerHTML = `<span class="dot"></span>${label ? `<span class="text">${label}</span>` : ''}`;
+  osmDot.title = tip || '';
+}
+
+function boundsKey(b) {
+  return [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]
+    .map(v => v.toFixed(4)).join(',');
+}
+
+function loadCacheFromStorage() {
+  try {
+    const raw = localStorage.getItem(OSM_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) osmBuildingCache = parsed;
+    }
+    const rawBounds = localStorage.getItem(OSM_BOUNDS_KEY);
+    if (rawBounds) {
+      const arr = JSON.parse(rawBounds);
+      if (Array.isArray(arr)) cachedBoundsKeys = new Set(arr);
+    }
+  } catch (e) { osmBuildingCache = []; cachedBoundsKeys = new Set(); }
+}
+
+function saveCacheToStorage() {
+  try {
+    // Drop polygons one at a time if over quota (oldest first).
+    let payload = JSON.stringify(osmBuildingCache);
+    while (payload.length > OSM_CACHE_MAX_BYTES && osmBuildingCache.length > 100) {
+      osmBuildingCache.splice(0, Math.ceil(osmBuildingCache.length * 0.2));
+      payload = JSON.stringify(osmBuildingCache);
+    }
+    localStorage.setItem(OSM_CACHE_KEY, payload);
+    localStorage.setItem(OSM_BOUNDS_KEY, JSON.stringify([...cachedBoundsKeys]));
+  } catch (e) { /* quota exceeded: silently drop */ }
+}
+
+function redrawOsmPolys() {
+  osmPolyLayer.clearLayers();
+  const zoom = leafletMap.getZoom();
+  const showLabels = zoom >= 16; // too cluttered below this
+  for (const b of osmBuildingCache) {
+    if (!b.polygon) continue;
+    const poly = L.polygon(b.polygon, {
+      color: b.name ? '#1e6fff' : '#888',
+      weight: 1.5, fillOpacity: 0.15,
+      fillColor: b.name ? '#4da3ff' : '#bbb',
+      interactive: false,
+    }).addTo(osmPolyLayer);
+    if (b.name && showLabels) {
+      // Permanent tooltip = every building name is visible all at once
+      // (no need to click each one to see what's there).
+      poly.bindTooltip(b.name, {
+        permanent: true, direction: 'center',
+        className: 'osm-label', opacity: 0.95,
+      });
+    }
+  }
+}
+// Re-draw labels when the user zooms (so they disappear at low zoom).
+leafletMap.on('zoomend', () => {
+  if (osmBuildingCache.length) redrawOsmPolys();
+});
+
+function pointInPolygon(lat, lon, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i];
+    const [yj, xj] = poly[j];
+    if (((yi > lat) !== (yj > lat))
+        && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function polygonCentroid(poly) {
+  let lat = 0, lon = 0;
+  for (const [la, lo] of poly) { lat += la; lon += lo; }
+  return { lat: lat / poly.length, lon: lon / poly.length };
+}
+
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2
+    + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function findCachedBuilding(lat, lon) {
+  for (const b of osmBuildingCache) {
+    if (b.polygon && pointInPolygon(lat, lon, b.polygon)) return b;
+  }
+  // Fallback: nearest cached building centroid within 25m (helps with tiny gaps)
+  let best = null, bestDist = Infinity;
+  for (const b of osmBuildingCache) {
+    const d = haversineM(lat, lon, b.center.lat, b.center.lon);
+    if (d < bestDist) { bestDist = d; best = b; }
+  }
+  return bestDist < 25 ? best : null;
+}
+
+function isBoundsCovered(bounds) {
+  const s = bounds.getSouth(), w = bounds.getWest();
+  const n = bounds.getNorth(), e = bounds.getEast();
+  for (const keyStr of cachedBoundsKeys) {
+    const [cs, cw, cn, ce] = keyStr.split(',').map(Number);
+    if (cs <= s && cn >= n && cw <= w && ce >= e) return true;
+  }
+  return false;
+}
+
+async function prefetchBuildings(bounds) {
+  const key = boundsKey(bounds);
+  // Skip if we've already fetched a superset of this view. Panning a few
+  // pixels changes the exact bounds key but shouldn't trigger a new fetch.
+  if (cachedBoundsKeys.has(key) || isBoundsCovered(bounds)) {
+    setOsmDot('ready', `OSM cache: ${osmBuildingCache.length} buildings (from localStorage)`);
+    return;
+  }
+  if (prefetchInFlight) return prefetchInFlight;
+  const s = bounds.getSouth(), w = bounds.getWest();
+  const n = bounds.getNorth(), e = bounds.getEast();
+  // Query both buildings (polygons) AND named POIs (nodes). OSM often stores
+  // the building polygon without a name, while the name lives on a POI node
+  // inside it (e.g. "Taj Campton Place Hotel" is a tourism=hotel node within
+  // an anonymous way). We cross-reference below to attach POI names to their
+  // enclosing buildings.
+  const q = `[out:json][timeout:25];`
+    + `(way["building"](${s},${w},${n},${e});`
+    + `node["name"](${s},${w},${n},${e}););`
+    + `out tags geom;`;
+  setOsmDot('fetching', 'Prefetching OSM buildings + POIs for this view...');
+  prefetchInFlight = (async () => {
+    try {
+      const data = await queryOverpass(q, null);
+      const all = data.elements || [];
+      const buildings = all.filter(el =>
+        el.type === 'way' && el.geometry && el.geometry.length >= 3);
+      const namedPois = all.filter(el =>
+        el.type === 'node' && el.tags
+        && (el.tags.name || el.tags.operator || el.tags.brand));
+      const existingIds = new Set(osmBuildingCache.map(b => `${b.osm_type}/${b.osm_id}`));
+      let added = 0;
+      for (const el of buildings) {
+        if (existingIds.has(`way/${el.id}`)) continue;
+        const poly = el.geometry.map(p => [p.lat, p.lon]);
+        const tags = el.tags || {};
+        // Building's own name tag wins; otherwise inherit from an enclosed POI.
+        let name = tags.name || tags.operator || tags.brand || '';
+        let nameSource = name ? 'building' : null;
+        let poiOsmId = null;
+        if (!name) {
+          for (const poi of namedPois) {
+            if (pointInPolygon(poi.lat, poi.lon, poly)) {
+              const pt = poi.tags;
+              name = pt.name || pt.operator || pt.brand;
+              nameSource = 'poi';
+              poiOsmId = poi.id;
+              break;
+            }
+          }
+        }
+        osmBuildingCache.push({
+          polygon: poly,
+          center: polygonCentroid(poly),
+          tags, name,
+          nameSource,
+          poi_osm_id: poiOsmId,
+          osm_id: el.id,
+          osm_type: 'way',
+        });
+        added++;
+      }
+      cachedBoundsKeys.add(key);
+      redrawOsmPolys();
+      saveCacheToStorage();
+      const namedCount = osmBuildingCache.filter(b => b.name).length;
+      setOsmDot('ready',
+        `OSM cache: ${osmBuildingCache.length} buildings, ${namedCount} named (+${added})`);
+    } catch (err) {
+      setOsmDot('error', 'OSM prefetch failed: ' + err.message);
+    } finally {
+      prefetchInFlight = null;
+    }
+  })();
+  return prefetchInFlight;
+}
+
+// Fetch is fully manual: moveend and cache-miss clicks never trigger Overpass.
+// User presses "Fetch this view" when they actually want data for a new area.
+const fetchNowBtn = document.getElementById('osm-fetch-now');
+fetchNowBtn.addEventListener('click', () => {
+  prefetchBuildings(leafletMap.getBounds());
+});
+
+// On page load: just show what's already in localStorage. No auto-prefetch.
+loadCacheFromStorage();
+if (osmBuildingCache.length > 0) {
+  redrawOsmPolys();
+  setOsmDot('ready', `OSM cache: ${osmBuildingCache.length} buildings (from localStorage)`);
+} else {
+  setOsmDot(null, 'OSM cache empty; press "Fetch this view"');
+}
+
+let osmMarker = null;
+// Bidirectional link: when user clicks the map BEFORE picking an STL region,
+// remember the OSM match; the next rooftop click (or free-label placement)
+// consumes it. Forward flow (STL first → map) still works exactly as before.
+let pendingOsmMatch = null;
+
+function drawOsmMarker(match, pending) {
+  if (osmMarker) leafletMap.removeLayer(osmMarker);
+  osmMarker = L.circleMarker([match.center.lat, match.center.lon], {
+    radius: 7,
+    color: pending ? '#cc7a00' : '#e6522c',
+    fillColor: pending ? '#ffb84d' : '#ff7a4a',
+    fillOpacity: 0.85, weight: 2,
+  }).addTo(leafletMap)
+    .bindPopup((match.name || `OSM ${match.osm_type} ${match.osm_id}`)
+      + (pending ? ' — pending: click a rooftop' : ''))
+    .openPopup();
+}
+
+function setModeHint(text, color) {
+  const el = document.getElementById('mode-hint');
+  el.textContent = text;
+  el.style.color = color || '';
+}
+
+// Custom confirm modal so we can style it (browser-native confirm shows an
+// ugly "127.0.0.1 says" header we can't control).
+function showConfirm({ title, current, replacement, okText, cancelText }) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirm-modal');
+    const titleEl = document.getElementById('modal-title');
+    const curEl = document.getElementById('modal-current');
+    const newEl = document.getElementById('modal-new');
+    const okBtn = document.getElementById('modal-ok');
+    const cancelBtn = document.getElementById('modal-cancel');
+    titleEl.textContent = title || 'Confirm';
+    curEl.textContent = current || '';
+    newEl.textContent = replacement || '';
+    okBtn.textContent = okText || 'Replace';
+    cancelBtn.textContent = cancelText || 'Cancel';
+    const cleanup = (result) => {
+      modal.classList.remove('show');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      modal.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onBackdrop = (e) => { if (e.target === modal) cleanup(false); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') cleanup(false);
+      else if (e.key === 'Enter') cleanup(true);
+    };
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+    modal.classList.add('show');
+    setTimeout(() => okBtn.focus(), 20);
+  });
+}
+
+async function applyOsmMatchToRegion(region, match, source) {
+  const osmName = match.name;
+  const currentOsmId = region.osm && region.osm.osm_id;
+  const isReplacement = currentOsmId != null && currentOsmId !== match.osm_id;
+
+  if (isReplacement) {
+    const currentLabel = region.osm.name || region.name || 'previous match';
+    const newLabel = osmName || '(unnamed)';
+    const ok = await showConfirm({
+      title: `Replace OSM link on Region #${region.id}?`,
+      current: currentLabel,
+      replacement: newLabel,
+      okText: 'Replace',
+      cancelText: 'Keep current',
+    });
+    if (!ok) {
+      // Restore the existing marker so the user sees what's still attached.
+      drawOsmMarker({
+        center: { lat: region.osm.lat, lon: region.osm.lon },
+        name: region.osm.name,
+        osm_id: region.osm.osm_id, osm_type: region.osm.osm_type,
+      }, false);
+      setOsmDot('ready', `Kept: ${currentLabel}`);
+      return;
+    }
+    // Confirmed: overwrite every field so the new OSM entity takes over.
+    if (osmName) {
+      region.name = osmName;
+      region.description = osmName;
+      region.code = makeCode(osmName);
+    }
+    region.osm = {
+      lat: match.center.lat, lon: match.center.lon,
+      osm_id: match.osm_id, osm_type: match.osm_type,
+      name: osmName || null,
+      source,
+    };
+  } else {
+    // Fresh attach (or re-click on the same OSM entity): fill empty fields only,
+    // preserving any manual edits the user has typed.
+    if (osmName && !region.name) region.name = osmName;
+    if (osmName && !region.description) region.description = osmName;
+    if (osmName && !region.code) region.code = makeCode(osmName);
+    if (!region.osm) {
+      region.osm = {
+        lat: match.center.lat, lon: match.center.lon,
+        osm_id: match.osm_id, osm_type: match.osm_type,
+        name: osmName || null,
+        source,
+      };
+    }
+  }
+
+  if (region.code) ensureUid(region);
+  updateBrailleMesh(region);
+  resetAllColors();
+  if (region.faceIndices && region.faceIndices.length) {
+    highlightRegion(region, SELECTED_COLOR);
+  }
+  renderDetail();
+  renderLegend();
+  updateStatus();
+  autoSave();
+  drawOsmMarker(match, false);
+  setOsmDot('ready',
+    `${source}: ${osmName || '(unnamed)'} @ ${match.center.lat.toFixed(6)}, ${match.center.lon.toFixed(6)}`);
+}
+
+function setPendingOsmMatch(match, source) {
+  pendingOsmMatch = { match, source };
+  drawOsmMarker(match, true);
+  setModeHint(
+    `OSM picked: ${match.name || '(unnamed)'} — click a rooftop to attach`,
+    '#ff9933');
+  setOsmDot('ready', `Pending: ${match.name || '(unnamed)'}`);
+}
+
+function consumePendingOsmMatch(region) {
+  if (!pendingOsmMatch || !region) return false;
+  const { match, source } = pendingOsmMatch;
+  pendingOsmMatch = null;
+  setModeHint('Click a rooftop to select');
+  applyOsmMatchToRegion(region, match, source);
+  return true;
+}
+
+leafletMap.on('click', async (e) => {
+  const { lat, lng } = e.latlng;
+
+  let match = findCachedBuilding(lat, lng);
+  let source = match ? 'cache' : '';
+  // No implicit fetch on cache-miss — fetching is fully manual via the button.
+
+  if (!match) {
+    try {
+      const nom = await nominatimReverse(lat, lng);
+      if (nom && nom.osm_id) {
+        // Only accept an actual name tag from Nominatim. display_name is a
+        // postal address like "21250 Stevens Creek Blvd" and would fill garbage.
+        const nomName = nom.name
+          || (nom.namedetails && nom.namedetails.name)
+          || '';
+        match = {
+          polygon: null,
+          center: { lat: parseFloat(nom.lat), lon: parseFloat(nom.lon) },
+          tags: {},
+          name: nomName,
+          osm_id: nom.osm_id, osm_type: nom.osm_type,
+        };
+        source = 'nominatim';
+      }
+    } catch (err) {}
+  }
+
+  if (!match) {
+    setOsmDot('ready', 'No building at this point');
+    return;
+  }
+
+  // If a region is already selected, apply immediately (forward flow).
+  // applyOsmMatchToRegion will pop a confirm dialog when the new OSM differs
+  // from the region's existing OSM, so the user can replace or keep.
+  // If nothing is selected, queue the match for the next rooftop click (reverse).
+  if (selectedRegion) {
+    applyOsmMatchToRegion(selectedRegion, match, source);
+  } else {
+    setPendingOsmMatch(match, source);
+  }
 });
 
 // Resizable panel
