@@ -412,7 +412,13 @@ function refreshReviewColors() {
 
 // ---- Three.js setup ----
 const container = document.getElementById('canvas-container');
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  // logarithmicDepthBuffer dramatically improves precision for coplanar
+  // faces (common when STL buildings share a flat rooftop), which kills
+  // the per-frame flicker without jittering the geometry itself.
+  logarithmicDepthBuffer: true,
+});
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearColor(0x2a2d33);
 renderer.shadowMap.enabled = true;
@@ -420,7 +426,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+const camera = new THREE.PerspectiveCamera(45, 1, 1, 4000);
 camera.position.set(100, 100, 250);
 
 const controls = new OrbitControls(camera, renderer.domElement);
