@@ -95,9 +95,9 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
   <button class="btn-s" id="btn-topview" style="background:#2a6e3f;color:#fff">Top View</button>
   <button class="btn-s" id="btn-place" style="background:#8b5e00;color:#fff">+ Free Label</button>
   <button class="btn-s" id="btn-review" style="background:#555;color:#fff" title="Review: base turns translucent, braille dots glow gold">Review</button>
+  <button class="btn-s" id="btn-clear-all" style="background:#7a2f2f;color:#fff" title="Remove every braille label from this STL">Clear All</button>
   <span class="hint" id="mode-hint">Click a rooftop to select</span>
   <div class="spacer"></div>
-  <button class="btn-s" id="btn-clear-all" style="background:#7a2f2f;color:#fff" title="Remove every braille label from this STL">Clear All</button>
   <button class="btn-s" id="btn-import">Import Labels</button>
   <button class="btn-p" id="btn-export" title="Download JSON + legend + map content together">Export</button>
   <button class="btn-p" id="btn-download-stl" style="background:#2a8f4f">Download Merged STL</button>
@@ -112,6 +112,7 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
   <div id="osm-status" class="osm-status" title="OSM cache"><span class="dot"></span></div>
   <div class="osm-controls">
     <button id="osm-fetch-now" class="osm-btn primary" title="Fetch OSM buildings for the current view">&#8635; Fetch this view</button>
+    <button id="osm-save-preload" class="osm-btn" style="font-size:10px;padding:3px 6px" title="Download the current OSM cache as JSON. Save to examples/osm-preload.json in the repo to ship as a default preload.">Download this fetch</button>
   </div>
   <div id="map-suggest" class="map-suggest"></div>
   <div class="map-search">
@@ -306,18 +307,20 @@ function ensureUid(region) {
 // Review mode toggles a translucent map base + glowing gold braille dots so
 // the user can visually audit what's been annotated without the surface
 // clutter. Two shared materials so every braille mesh animates together.
-const MAT_BRAILLE_DEFAULT = new THREE.MeshPhongMaterial({ color: 0xffffff });
-const MAT_BRAILLE_REVIEW = new THREE.MeshPhongMaterial({
+const MAT_BRAILLE_DEFAULT = new THREE.MeshStandardMaterial({
+  color: 0xffffff, roughness: 0.75, metalness: 0.0,
+});
+const MAT_BRAILLE_REVIEW = new THREE.MeshStandardMaterial({
   color: 0xffd700,
   emissive: 0xffaa00,
   emissiveIntensity: 0.75,
-  shininess: 120,
+  roughness: 0.55, metalness: 0.0,
 });
-const MAT_BRAILLE_ISSUE = new THREE.MeshPhongMaterial({
+const MAT_BRAILLE_ISSUE = new THREE.MeshStandardMaterial({
   color: 0xff4040,
   emissive: 0xcc1010,
   emissiveIntensity: 0.85,
-  shininess: 100,
+  roughness: 0.55, metalness: 0.0,
 });
 let reviewMode = false;
 function brailleMaterial() { return reviewMode ? MAT_BRAILLE_REVIEW : MAT_BRAILLE_DEFAULT; }
@@ -411,7 +414,9 @@ function refreshReviewColors() {
 const container = document.getElementById('canvas-container');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setClearColor(0x2a2a2a);
+renderer.setClearColor(0x2a2d33);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -421,11 +426,31 @@ camera.position.set(100, 100, 250);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-// Lighting
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(100, 200, 150);
-scene.add(dirLight);
+// Lighting: rake light from the NE at a low elevation casts shadows
+// across the map so building footprints are visible even in top view
+// (where same-direction surface normals otherwise give zero contrast).
+// Fill from opposite side keeps the shadowed walls from going pitch black.
+// Soft fill: ambient keeps shadowed walls readable, hemisphere adds a
+// subtle sky-to-ground gradient so flat tops don't look cardboard.
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+scene.add(new THREE.HemisphereLight(0xdbe6f5, 0x4a4a4a, 0.35));
+const rakeLight = new THREE.DirectionalLight(0xffffff, 0.95);
+rakeLight.position.set(250, 180, 200);
+rakeLight.castShadow = true;
+rakeLight.shadow.mapSize.set(2048, 2048);
+rakeLight.shadow.bias = -0.0005;
+// Shadow camera bounds are resized to the STL after load; the defaults
+// here just keep the shadow map sane until an STL is present.
+rakeLight.shadow.camera.near = 1;
+rakeLight.shadow.camera.far = 1000;
+rakeLight.shadow.camera.left = -300;
+rakeLight.shadow.camera.right = 300;
+rakeLight.shadow.camera.top = 300;
+rakeLight.shadow.camera.bottom = -300;
+scene.add(rakeLight);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.2);
+fillLight.position.set(-200, -150, 150);
+scene.add(fillLight);
 
 function resize() {
   const w = container.clientWidth, h = container.clientHeight;
@@ -445,12 +470,13 @@ animate();
 
 // ---- STL loading and region detection ----
 let stlMesh = null;
+let stlEdges = null;    // LineSegments overlay that outlines sharp geometry edges
 let regions = [];       // array of { faceIndices, center, z, area, bbox, name, code, description }
 let selectedRegion = null;
 let regionColors = null; // per-face color buffer
 let stlFileName = '';
 
-const BASE_COLOR = new THREE.Color(0.85, 0.85, 0.85);
+const BASE_COLOR = new THREE.Color(1.0, 1.0, 1.0);
 const HOVER_COLOR = new THREE.Color(0.7, 0.85, 1.0);
 const SELECTED_COLOR = new THREE.Color(1.0, 0.92, 0.5);
 const LABELED_COLOR = new THREE.Color(0.7, 0.95, 0.7);
@@ -493,8 +519,9 @@ function loadSTL(buffer, fileName) {
   clearAllAnnotations({ keepRegions: false });
 
   stlFileName = fileName;
-  // Remove old mesh
+  // Remove old mesh + its edge overlay
   if (stlMesh) scene.remove(stlMesh);
+  if (stlEdges) { scene.remove(stlEdges); stlEdges.geometry.dispose(); }
 
   const loader = new STLLoader();
   const geometry = loader.parse(buffer);
@@ -517,12 +544,30 @@ function loadSTL(buffer, fileName) {
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-  const material = new THREE.MeshPhongMaterial({
+  const material = new THREE.MeshStandardMaterial({
     vertexColors: true, flatShading: true,
     side: THREE.DoubleSide,
+    roughness: 0.88, metalness: 0.0,
+    // Nudge the filled mesh back in the depth buffer so the edge overlay
+    // wins the equal-depth tie that otherwise causes per-frame flicker.
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
   });
   stlMesh = new THREE.Mesh(geometry, material);
+  stlMesh.castShadow = true;
+  stlMesh.receiveShadow = true;
   scene.add(stlMesh);
+
+  // Edge overlay so rooftop corners and wall/base seams are visible from
+  // any angle. 25 deg threshold keeps sharp corners in, skips the many
+  // shallow terrain facets that would otherwise clutter the view.
+  const edgeGeom = new THREE.EdgesGeometry(geometry, 25);
+  stlEdges = new THREE.LineSegments(
+    edgeGeom,
+    new THREE.LineBasicMaterial({ color: 0x1a1d22, transparent: true, opacity: 0.55 })
+  );
+  scene.add(stlEdges);
 
   // Fit camera
   const size = box.max.clone().sub(box.min);
@@ -530,6 +575,22 @@ function loadSTL(buffer, fileName) {
   camera.position.set(0, -maxDim * 0.3, maxDim * 1.2);
   controls.target.set(0, 0, size.z / 2);
   controls.update();
+
+  // Resize shadow camera to match the STL so directional shadows actually
+  // cover the map. DoubleSide materials + flat shading can give self-shadow
+  // acne on back-faces; the bias on rakeLight.shadow already mitigates that.
+  const shadowMargin = maxDim * 0.6;
+  rakeLight.shadow.camera.left = -shadowMargin;
+  rakeLight.shadow.camera.right = shadowMargin;
+  rakeLight.shadow.camera.top = shadowMargin;
+  rakeLight.shadow.camera.bottom = -shadowMargin;
+  rakeLight.shadow.camera.near = 1;
+  rakeLight.shadow.camera.far = maxDim * 4;
+  rakeLight.shadow.camera.updateProjectionMatrix();
+  // Position the light relative to the model's size so the rake angle stays
+  // consistent across STLs of different scale.
+  rakeLight.position.set(maxDim * 0.9, maxDim * 0.7, maxDim * 0.9);
+  fillLight.position.set(-maxDim * 0.7, -maxDim * 0.5, maxDim * 0.6);
 
   // Detect regions (connected top-faces)
   detectRegions(geometry);
@@ -1677,7 +1738,7 @@ document.addEventListener('drop', e => {
 // ---- Leaflet OSM Map ----
 const leafletMap = L.map('leaflet-map').setView([37.3195, -122.0449], 17);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 20, attribution: '&copy; OpenStreetMap'
+  maxZoom: 21, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap'
 }).addTo(leafletMap);
 
 // Google-Maps-style search with live suggestions from Nominatim.
@@ -2148,14 +2209,65 @@ fetchNowBtn.addEventListener('click', () => {
   prefetchBuildings(leafletMap.getBounds(), { force: true });
 });
 
-// On page load: just show what's already in localStorage. No auto-prefetch.
-loadCacheFromStorage();
-if (osmBuildingCache.length > 0) {
-  redrawOsmPolys();
-  setOsmDot('ready', `OSM cache: ${osmBuildingCache.length} buildings (from localStorage)`);
-} else {
-  setOsmDot(null, 'OSM cache empty; press "Fetch this view"');
+const OSM_PRELOAD_PATH = 'examples/osm-preload.json';
+
+// Dump current in-memory cache so it can be committed as the shipped preload.
+document.getElementById('osm-save-preload').addEventListener('click', () => {
+  if (osmBuildingCache.length === 0) {
+    setOsmDot('error', 'Nothing to save — fetch a view first');
+    return;
+  }
+  const payload = {
+    savedAt: new Date().toISOString(),
+    buildings: osmBuildingCache,
+    boundsKeys: [...cachedBoundsKeys],
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'osm-preload.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+  setOsmDot('ready',
+    `Saved ${osmBuildingCache.length} buildings. Place as ${OSM_PRELOAD_PATH} in the repo.`);
+});
+
+// On page load: merge localStorage cache with the shipped preload (if any).
+// Dedupe by osm_type/osm_id so re-fetches don't duplicate. The preload
+// gives a first-time visitor instant polygons on GH Pages without needing
+// to press the Fetch button.
+async function mergeShippedPreload() {
+  try {
+    const resp = await fetch(OSM_PRELOAD_PATH, { cache: 'no-cache' });
+    if (!resp.ok) return 0;
+    const data = await resp.json();
+    const have = new Set(osmBuildingCache.map(b => `${b.osm_type}/${b.osm_id}`));
+    let added = 0;
+    for (const b of (data.buildings || [])) {
+      const k = `${b.osm_type}/${b.osm_id}`;
+      if (have.has(k) || !b.polygon) continue;
+      osmBuildingCache.push(b);
+      have.add(k);
+      added++;
+    }
+    for (const k of (data.boundsKeys || [])) cachedBoundsKeys.add(k);
+    return added;
+  } catch { return 0; }
 }
+
+loadCacheFromStorage();
+(async () => {
+  const added = await mergeShippedPreload();
+  if (osmBuildingCache.length > 0) {
+    redrawOsmPolys();
+    const src = added > 0 ? `localStorage + preload (+${added})` : 'localStorage';
+    setOsmDot('ready', `OSM cache: ${osmBuildingCache.length} buildings (${src})`);
+  } else {
+    setOsmDot(null, 'OSM cache empty; press "Fetch this view"');
+  }
+})();
 
 let osmMarker = null;
 // Bidirectional link: when user clicks the map BEFORE picking an STL region,
