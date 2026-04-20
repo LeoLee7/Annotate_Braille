@@ -1988,9 +1988,10 @@ function redrawOsmPolys() {
   for (const b of osmBuildingCache) {
     if (!b.polygon) continue;
     const poly = L.polygon(b.polygon, {
-      color: b.name ? '#1e6fff' : '#888',
-      weight: 1.5, fillOpacity: 0.15,
-      fillColor: b.name ? '#4da3ff' : '#bbb',
+      color: b.name ? '#1e6fff' : '#555',
+      weight: b.name ? 1.5 : 1,
+      fillOpacity: b.name ? 0.15 : 0.28,
+      fillColor: b.name ? '#4da3ff' : '#888',
       interactive: false,
     }).addTo(osmPolyLayer);
     if (b.name && showLabels) {
