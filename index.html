@@ -2544,6 +2544,20 @@ document.addEventListener('mouseup', () => { vResizing = false; });
 
 // Fix leaflet size after layout settles
 setTimeout(() => leafletMap.invalidateSize(), 500);
+
+// Auto-load a default example STL so a cold page open shows a real model
+// instead of an empty scene. Silent fail when opened via file:// (fetch
+// blocked by the browser) or when the example file is missing — the user
+// can still drag-and-drop their own STL.
+(async () => {
+  try {
+    const url = 'examples/ucsc/Engineering%202.stl';
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const buf = await resp.arrayBuffer();
+    loadSTL(buf, 'Engineering 2.stl');
+  } catch (e) { /* file:// or offline; user loads manually */ }
+})();
 </script>
 </body>
 </html>
