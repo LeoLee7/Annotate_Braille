@@ -1849,8 +1849,13 @@ async function queryOverpass(q, onStatus) {
           throw new Error(`${new URL(url).hostname}: HTTP ${resp.status}`);
         }
         const data = await resp.json();
-        // Cancel siblings as soon as one succeeds — saves bandwidth and
-        // doesn't hold Overpass slots we no longer need.
+        // Some mirrors race back a valid-looking 200 with elements:[] when
+        // they can't serve the query — if we accept it, Promise.any cancels
+        // the siblings that would have returned real data. Reject empty
+        // so a slower but real response gets to win.
+        if (!Array.isArray(data.elements) || data.elements.length === 0) {
+          throw new Error(`${new URL(url).hostname}: empty elements`);
+        }
         ctrls.forEach((c, j) => { if (j !== i) c.abort(); });
         return data;
       }).finally(() => clearTimeout(timer));
@@ -2054,11 +2059,13 @@ function isBoundsCovered(bounds) {
   return false;
 }
 
-async function prefetchBuildings(bounds) {
+async function prefetchBuildings(bounds, { force = false } = {}) {
   const key = boundsKey(bounds);
   // Skip if we've already fetched a superset of this view. Panning a few
   // pixels changes the exact bounds key but shouldn't trigger a new fetch.
-  if (cachedBoundsKeys.has(key) || isBoundsCovered(bounds)) {
+  // `force` bypasses this — used when the user explicitly clicks the button,
+  // so they can refetch even over a stale/evicted cache.
+  if (!force && (cachedBoundsKeys.has(key) || isBoundsCovered(bounds))) {
     setOsmDot('ready', `OSM cache: ${osmBuildingCache.length} buildings (from localStorage)`);
     return;
   }
@@ -2137,7 +2144,7 @@ async function prefetchBuildings(bounds) {
 // User presses "Fetch this view" when they actually want data for a new area.
 const fetchNowBtn = document.getElementById('osm-fetch-now');
 fetchNowBtn.addEventListener('click', () => {
-  prefetchBuildings(leafletMap.getBounds());
+  prefetchBuildings(leafletMap.getBounds(), { force: true });
 });
 
 // On page load: just show what's already in localStorage. No auto-prefetch.
