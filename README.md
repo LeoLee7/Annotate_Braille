@@ -1,82 +1,174 @@
 # Tactile Map Braille Editor
 
-A complementary tool for [Touch Mapper](https://touch-mapper.org/) that lets you manually annotate braille labels onto tactile map STL files. Touch Mapper generates 3D-printable maps from OpenStreetMap data, but the output lacks text labels. This editor fills that gap: load a Touch Mapper STL, label buildings with braille codes, and download a print-ready STL with embedded braille dots.
+A browser-only companion to [Touch Mapper](https://touch-mapper.org/) that adds UEB braille labels to tactile-map STL files. Touch Mapper generates 3D-printable maps from OpenStreetMap data but leaves them text-free. This editor fills that gap: load an STL, let the built-in OSM panel match buildings for you, and export a print-ready STL with embedded braille dots plus a self-contained annotations JSON.
 
-**Fully client-side.** No server, no Python, no install. Host on GitHub Pages or open `index.html` directly.
+**Fully client-side.** No server, no Python, no install. Open `index.html` directly or host on GitHub Pages.
 
-## Live Demo
+## Quick start
 
-Open `index.html` in any modern browser, or host via GitHub Pages.
+1. Open `index.html` in any modern browser.
+2. `Load STL` (or drag-and-drop). The map panel auto-navigates to the region matching the filename.
+3. Click `Fetch this view` to pull OSM buildings for the current map view. The pill at the map's top-left turns green when ready.
+4. Label buildings:
+   - Click a rooftop in the 3D view, then click its building on the map.
+   - Or click the map first, then click the rooftop. Either order works.
+   - The sidebar autofills. Tweak rotation, scale, or braille code if needed. `Save Label`.
+5. `Review` mode to audit your work. Red dots flag problems.
+6. `Export` to download three files in one click: the reimportable JSON bundle plus a legend `.txt` and a map-content `.txt`. `Download Merged STL` to get the print-ready mesh.
 
-## Workflow
+## Highlights
 
-### 1. Load a tactile map
+- **OSM integration.** Embedded Leaflet map with one-click `Fetch this view`. Pulls building polygons and named POIs via a racing Overpass client (5 mirrors, 20s and 60s rounds), caches to `localStorage` so repeat visits are instant.
+- **Bidirectional auto-labelling.** Click a building on the map and a rooftop on the 3D model in either order. English name, description, and UEB braille code autofill. No manual typing per building.
+- **Touch Mapper-aligned metadata.** Every annotation carries a rich `osm` record: `name`, precise lat/lon, functional classification (A-E main class with sub-classes like `C1_landmark`, `C2_public`, `D4_leisure_cultural` / "familiar places"), spatial description ("In the north-east corner, covers 2.1% of view"), Wikipedia / Wikidata / OSM links, and selected OSM tags.
+- **UEB-correct braille.** Number indicator `⠼` and letter indicator `⠰` are inserted automatically so codes with digits ("S5", "PE2") can't be misread as letter equivalents. Optional Nemeth-style compact digits for tight rooftops.
+- **Review mode.** Translucent base + glowing gold dots for a clean audit view, with automatic detection of five geometric problems: pierces the base, overlaps an adjacent label, floats above nothing, rests on map base (no building underneath), or is buried under a rooftop.
+- **Print-safe geometry.** Hemisphere dots with a flat base disc (no lower-hemisphere piercing) and adaptive base thickening guarantee at least 1mm of solid material beneath every dot.
+- **One-click export.** A single `Export` button produces all three artifacts at once: a reimportable annotations JSON (with the full label data plus `legend_text` and `map_content_text` string fields baked in for redundancy), a standalone `_legend.txt` ready for a braille embosser, and a standalone `_mapcontent.txt` grouped by Touch Mapper classification for a sighted companion.
 
-Get an STL file from [Touch Mapper](https://touch-mapper.org/), then click **Load STL** or drag-and-drop it into the editor. The mesh renders in 3D and building regions (connected flat surfaces) are detected automatically.
+## Controls
 
-### 2. Label buildings
+### Mouse
+| Action | What it does |
+|---|---|
+| Left drag | Orbit |
+| Scroll | Zoom |
+| Right drag | Pan |
+| Click rooftop | Select region |
+| Click building on map | Attach OSM data to selected region (or queue for next rooftop click) |
+| Click braille dots | Select that label for editing |
+| Drag braille dots | Reposition label, snaps to top surface |
 
-1. **Click a building rooftop** to select it (highlights yellow)
-2. Type **Braille Code** (e.g. "ADM"), **English Name**, and **Description** in the sidebar
-3. Adjust **Rotation** (0 to 360) and **Size** (50% to 200%) sliders as needed
-4. Click **Save Label**. White braille dots appear on the surface.
-5. Use the OSM map on the right for geographic reference.
-6. Repeat for all buildings.
+### Keyboard
+| Key | Action |
+|---|---|
+| `Esc` | Clear selection and any pending OSM match |
+| `Delete` / `Backspace` | Delete the current label (ignored while typing in inputs) |
+| `Enter` (in confirm modal) | Accept replace |
+| `Esc` (in confirm modal) | Keep current |
 
-Controls:
-- **Left drag**: orbit
-- **Scroll**: zoom
-- **Right drag**: pan
-- **Top View**: snap to bird's-eye view
-- **+ Free Label**: click anywhere to place a label at an arbitrary point
-- **Click braille dots**: select that label for editing
-- **Drag braille dots**: reposition the label (snaps to top surface)
+### Toolbar
 
-### 3. Export
+| Button | What it does |
+|---|---|
+| `Load STL` | Open an STL file picker |
+| `Top View` | Camera snaps to bird's-eye |
+| `+ Free Label` | Click anywhere on the mesh to place a label (for plazas, parks, open ground) |
+| `Review` | Enter audit mode (translucent base, glowing dots, red flags on problems) |
+| `Clear All` | Remove every label from the current STL. Confirms first. |
+| `Import Labels` | Restore an `*_annotations.json` from a previous session |
+| `Export` | Download three files at once: `_annotations.json` (reimportable bundle), `_legend.txt`, `_mapcontent.txt` |
+| `Download Merged STL` | Export the print-ready STL with braille dots merged into the mesh |
 
-- **Download Merged STL**: merges all braille dots into the STL mesh and downloads `{name}_braille.stl`. Ready for 3D printing.
-- **Legend TXT**: downloads a text file listing each code, braille unicode, and name.
-- **Export Labels JSON**: saves label data for later editing. Re-import with **Import Labels**.
 
-### 4. Resume editing
 
-Import a saved `_labels.json` to restore all labels at their exact coordinates.
+## Export bundle format
 
-## Files
+`Export` downloads three sibling files per click:
 
-| File | Purpose |
-|------|---------|
-| `index.html` | Single-page 3D braille editor with built-in STL synthesis |
-| `examples/` | Sample labels and blocks JSON files |
+- **`{stl}_annotations.json`** — structured source of truth, reimportable.
+- **`{stl}_legend.txt`** — plain-text braille legend table for an embosser.
+- **`{stl}_mapcontent.txt`** — grouped description organised by Touch Mapper classification.
 
-## How It Works
+The `legend_text` and `map_content_text` fields are also embedded inside the JSON so one file alone is enough if the other two get lost. JSON shape:
 
-Everything runs in the browser:
+```jsonc
+{
+  "stl_file": "UCSC_East_Fields.stl",
+  "generated_at": "2026-04-19T16:00:00.000Z",
+  "uid_prefix": "a", "next_uid": 42,
+  "blocks": [
+    {
+      "id": 7, "uid": "a12",
+      "cx": 28.4, "cy": -7.3, "z": 3.50,
+      "w": 14, "h": 7, "x_min": 21.4, "x_max": 35.4,
+      "y_min": -10.8, "y_max": -3.8, "area": 2,
+      "name": "Visual and Performing Arts Center",
+      "code": "VPA",
+      "description": "Visual and Performing Arts Center",
+      "braille": "⠧⠏⠁",
+      "compactDigits": false, "rotation": 0, "scale": 1.0,
+      "osm": {
+        "lat": 37.321752, "lon": -122.043705,
+        "osm_id": 135174113, "osm_type": "way",
+        "name": "Visual and Performing Arts Center",
+        "source": "cache",
+        "mainClass": "C", "subClass": "C2_public",
+        "category": "University building",
+        "keyTags": { "building": "university", "name": "..." },
+        "spatial": {
+          "position": "In the north-east corner",
+          "edge": null,
+          "coveragePct": 2.13,
+          "viewBounds": { "south": 37.319, "west": -122.047, ... }
+        }
+      }
+    }
+  ],
+  "legend_text": "Braille Legend: UCSC_East_Fields\n==========================...",
+  "map_content_text": "Map content: UCSC_East_Fields\n============...\nPublic buildings\n----------------\n  Visual and Performing Arts Center (University building)  [VPA]\n    In the north-east corner · covers 2.1% of view · GPS 37.32175, -122.04371\n..."
+}
+```
 
-1. **Region detection**: analyzes STL mesh faces, groups connected surfaces by height continuity
-2. **Braille rendering**: converts letter codes to UEB dot patterns, renders as 3D cylinder+sphere geometry
-3. **STL synthesis**: merges dot geometry with the original mesh using Three.js STLExporter
-4. **No backend**: all file I/O uses browser File API and Blob downloads
+- `blocks[]` is the source of truth. Re-import reads this and nothing else.
+- `legend_text` is a ready-to-print ASCII table of code / braille / name. Paste into any UEB embosser input.
+- `map_content_text` is a Touch Mapper-style grouped description organised by the classification hierarchy, useful as a sighted-reader reference alongside the tactile map.
 
-## Braille Dot Specifications
+## Braille dot specs
 
-| Parameter | Default (100%) | Range with scale slider |
-|-----------|---------------|------------------------|
-| Dot diameter | 1.6mm | 0.8 to 3.2mm |
-| Dot height | 0.8mm | 0.4 to 1.6mm |
-| Dot spacing | 2.5mm | 1.25 to 5.0mm |
-| Cell gap | 6.0mm | 3.0 to 12.0mm |
-| Surface embed | 0.3mm | 0.15 to 0.6mm |
+| Parameter | Default (scale = 100%) |
+|---|---|
+| Dot diameter | 1.6 mm |
+| Dot height above surface | 0.8 mm |
+| Dot spacing within a cell | 2.5 mm |
+| Cell gap | 6.0 mm |
+| Surface embed | 0.02 mm (just enough for fusion) |
+| Base safety margin | 1.0 mm minimum below any dot |
 
-Default values meet UEB (Unified English Braille) tactile standards. Dots are dome-shaped (cylinder stem with sphere cap) for optimal tactile readability.
+Dot geometry is an upper hemisphere with a flat disc cap on the bottom, sitting on the rooftop. No lower hemisphere to pierce thin shells.
 
-## Print Settings
+Defaults meet UEB tactile-graphics specifications. The per-label `Size` slider scales from 50% to 200%.
+
+## Print settings
 
 - Layer height: 0.3mm
 - Infill: 20%
-- Supports: not needed (dots are embedded into surface)
+- Supports: not needed
 - Material: PLA or PETG
+
+## How it works
+
+1. **Region detection.** On STL load, the mesh is scanned for connected flat faces grouped by height continuity. The largest strongly dominant region is flagged as the map base.
+2. **OSM fetch and caching.** `Fetch this view` sends one Overpass query (buildings plus named POIs in the current map bbox) to multiple mirrors in parallel via `Promise.any`. The winning response populates an in-memory cache that is mirrored into `localStorage` keyed by bbox, so revisits are instant.
+3. **POI-inside-polygon enrichment.** Many OSM buildings have no `name` tag because the name lives on a POI node placed inside the building polygon. A point-in-polygon pass links each unnamed building to its enclosing POI's name.
+4. **Touch Mapper classification.** A tag-based rule set ported from `touch-mapper-master/converter/map_desc/map-description-classifications.json` assigns each feature a main class (A-E), sub-class, and human category.
+5. **Braille rendering.** `codeToBrailleCells` walks the code string and inserts `⠼` and `⠰` indicators per UEB rules. `createBrailleMesh` renders each cell as a cylinder stem plus hemisphere cap plus flat base disc, assembled into a Three.js `Group` per label.
+6. **STL synthesis.** On `Download Merged STL`, the label groups are cloned into a fresh scene alongside the original geometry and the adaptive base slab, then serialized to binary STL via Three.js `STLExporter`.
+
+Everything runs in the browser. Three.js and Leaflet are loaded from CDN. No npm, no build step.
+
+## Files
+
+| Path | Purpose |
+|---|---|
+| `index.html` | Single-page editor. All code inline, no build. |
+| `examples/` | Sample STL and annotations JSON files. |
+| `CHANGELOG.md` | Per-release notes. |
+| `touch-mapper-master/` | Vendored Touch Mapper source, for reference and classification rules. |
+
+## Limitations
+
+- **Overpass latency.** Public Overpass mirrors are rate-limited and sometimes slow. Fetching is manual for this reason. A 5-15 minute cooldown kicks in after 403/429 responses; pre-generating a static GeoJSON bundle per map area is the reliable alternative for heavy use.
+- **Vector-tile basemaps not wired in.** The map uses OSM raster tiles, so building names on the basemap are pixels, not queryable data. All name/ID lookups go through Overpass and Nominatim.
+- **Spatial hint reference.** The `osm.spatial` position phrase is computed against the Leaflet view bounds at attach time. If you pan the map drastically between attaching and reviewing, the recorded phrase still refers to the original view.
 
 ## Dependencies
 
-None. Three.js and Leaflet.js are loaded from CDN. No npm, no build step.
+None at build time. At runtime, loaded from CDN:
+
+- Three.js 0.164.1 (3D viewer, STL loader/exporter)
+- Leaflet 1.9.4 (OSM map panel)
+
+## License
+
+See `LICENSE`.

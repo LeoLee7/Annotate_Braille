@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Braille Editor 3D</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -27,7 +28,8 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
 .map-search{position:absolute;top:8px;right:8px;z-index:1000;display:flex;gap:3px}
 .map-search input{padding:4px 6px;font-size:11px;border:1px solid #aaa;border-radius:3px;width:150px}
 .map-search button{padding:4px 8px;font-size:10px;border:none;border-radius:3px;background:#fff;cursor:pointer}
-.osm-status{position:absolute;top:10px;left:60px;z-index:1000;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.92);padding:4px 8px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.25);font-size:11px;font-weight:600;color:#555;cursor:help;transition:all .2s}
+.osm-status{position:absolute;top:10px;left:60px;z-index:1000;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.92);padding:4px 8px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.25);font-size:11px;font-weight:600;color:#555;cursor:help;transition:all .2s;overflow:hidden}
+.osm-status .bar{position:absolute;left:0;bottom:0;height:2px;background:#ffa500;width:0;transition:width .4s linear;pointer-events:none}
 .osm-status .dot{width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0}
 .osm-status.fetching .dot{background:#ffa500;animation:osm-pulse 1s infinite}
 .osm-status.fetching{color:#b36b00}
@@ -43,6 +45,8 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
 .map-suggest-item:hover,.map-suggest-item.active{background:#e8f0fe}
 .map-suggest-item .title{font-weight:600;color:#222}
 .map-suggest-item .sub{font-size:9px;color:#888;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@keyframes btn-flash-attn{0%,100%{box-shadow:0 0 0 0 rgba(255,180,0,0);outline:2px solid rgba(255,180,0,0)}50%{box-shadow:0 0 0 6px rgba(255,180,0,.65);outline:2px solid rgba(255,180,0,1)}}
+.btn-s.flash,.btn-p.flash{animation:btn-flash-attn .45s ease-in-out 3}
 .modal-backdrop{position:fixed;inset:0;background:rgba(20,20,25,.38);display:none;align-items:center;justify-content:center;z-index:10000;animation:modal-fade .15s ease}
 .modal-backdrop.show{display:flex}
 .modal-card{background:#fff;border-radius:10px;padding:20px 22px 16px;max-width:380px;width:90%;box-shadow:0 12px 40px rgba(0,0,0,.28);animation:modal-pop .18s ease}
@@ -77,6 +81,7 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
 .legend th{text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:3px 0;border-bottom:1px solid #eee}
 .legend td{padding:2px 0;border-bottom:1px solid #f5f5f5;cursor:pointer}
 .legend tr:hover td{background:#f0f8ff}
+.legend tr.active td{background:#fff1c4;font-weight:600;box-shadow:inset 3px 0 0 #f0a500}
 .legend .bc{font-size:13px;color:#111}
 .status{font-size:10px;color:#888;padding:4px 0;border-top:1px solid #eee;text-align:center}
 </style>
@@ -89,12 +94,13 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a1a;color:#22
   <input type="file" id="file-input" accept=".stl">
   <button class="btn-s" id="btn-topview" style="background:#2a6e3f;color:#fff">Top View</button>
   <button class="btn-s" id="btn-place" style="background:#8b5e00;color:#fff">+ Free Label</button>
+  <button class="btn-s" id="btn-review" style="background:#555;color:#fff" title="Review: base turns translucent, braille dots glow gold">Review</button>
   <span class="hint" id="mode-hint">Click a rooftop to select</span>
   <div class="spacer"></div>
+  <button class="btn-s" id="btn-clear-all" style="background:#7a2f2f;color:#fff" title="Remove every braille label from this STL">Clear All</button>
   <button class="btn-s" id="btn-import">Import Labels</button>
-  <button class="btn-p" id="btn-export">Export Labels JSON</button>
+  <button class="btn-p" id="btn-export" title="Download JSON + legend + map content together">Export</button>
   <button class="btn-p" id="btn-download-stl" style="background:#2a8f4f">Download Merged STL</button>
-  <button class="btn-s" id="btn-download-legend">Legend TXT</button>
 </div>
 <div class="mid">
 <div id="canvas-container">
@@ -150,21 +156,10 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 
 // ---- Braille ----
-const UEB = {
-  A:'⠁',B:'⠃',C:'⠉',D:'⠙',E:'⠑',F:'⠋',G:'⠛',H:'⠓',I:'⠊',J:'⠚',
-  K:'⠅',L:'⠇',M:'⠍',N:'⠝',O:'⠕',P:'⠏',Q:'⠟',R:'⠗',S:'⠎',T:'⠞',
-  U:'⠥',V:'⠧',W:'⠺',X:'⠭',Y:'⠽',Z:'⠵',
-  '1':'⠁','2':'⠃','3':'⠉','4':'⠙','5':'⠑',
-  '6':'⠋','7':'⠛','8':'⠓','9':'⠊','0':'⠚'
-};
-function toBraille(code) {
-  return [...code.toUpperCase()].map(c => {
-    if (c === ' ') return '⠀'; // braille blank (U+2800) for space
-    return UEB[c] || '⠿';
-  }).join('');
-}
-
-// UEB dot positions (1-6) for STL geometry
+// UEB dot positions (1-6) per character. Digits 1-0 share patterns with A-J
+// — disambiguation is handled by a leading number indicator cell ⠼ (dots
+// 3,4,5,6), emitted by codeToBrailleCells() below, NOT by storing separate
+// glyphs. This mirrors the UEB spec and is what an embosser expects.
 const UEB_DOTS = {
   A:[1],B:[1,2],C:[1,4],D:[1,4,5],E:[1,5],F:[1,2,4],G:[1,2,4,5],H:[1,2,5],I:[2,4],J:[2,4,5],
   K:[1,3],L:[1,2,3],M:[1,3,4],N:[1,3,4,5],O:[1,3,5],P:[1,2,3,4],Q:[1,2,3,4,5],R:[1,2,3,5],
@@ -172,6 +167,73 @@ const UEB_DOTS = {
   '1':[1],'2':[1,2],'3':[1,4],'4':[1,4,5],'5':[1,5],
   '6':[1,2,4],'7':[1,2,4,5],'8':[1,2,5],'9':[2,4],'0':[2,4,5],
 };
+const NUM_INDICATOR_DOTS = [3, 4, 5, 6];      // ⠼ "what follows is a number"
+const LETTER_INDICATOR_DOTS = [5, 6];         // ⠰ "back to letters" after digits
+const DIGIT_LOOKALIKES = 'ABCDEFGHIJ';        // letters that collide with digits
+
+// Lowered (Nemeth-style) digit patterns: A-J shifted from rows 1,2 to rows
+// 2,3. These share no cell shape with any A-Z letter, so no number indicator
+// is needed — saving one cell per digit run. Trade-off: not strict UEB.
+// Opt-in per label (region.compactDigits = true) for tight rooftops.
+const LOWER_DIGIT_DOTS = {
+  '1':[2],'2':[2,3],'3':[2,5],'4':[2,5,6],'5':[2,6],
+  '6':[2,3,5],'7':[2,3,5,6],'8':[2,3,6],'9':[3,5],'0':[3,5,6],
+};
+
+// Convert dot-list → Unicode braille cell (U+2800 + bit mask on dots 1..6).
+function dotsToUnicode(dots) {
+  let mask = 0;
+  for (const d of (dots || [])) mask |= (1 << (d - 1));
+  return String.fromCharCode(0x2800 + mask);
+}
+
+// Convert a code string to an ordered list of physical braille cells.
+// Two modes:
+//   (default) Standard UEB: digits use A-J patterns prefixed by ⠼ indicator;
+//     letter indicator ⠰ separates digit runs from trailing a-j letters.
+//       "S5"  → [S, ⠼, 5]           (3 cells)
+//       "A5B" → [A, ⠼, 5, ⠰, B]     (5 cells)
+//   (options.compactDigits = true) Lowered digits: each digit is 1 cell,
+//     no indicators needed because lowered patterns don't collide with A-Z.
+//     Not strict UEB but saves space on tight rooftops.
+//       "S5"  → [S, 5-lower]        (2 cells)
+//       "A5B" → [A, 5-lower, B]     (3 cells)
+function codeToBrailleCells(code, options) {
+  const compact = !!(options && options.compactDigits);
+  const cells = [];
+  let inNum = false;
+  for (const rawCh of (code || '').toUpperCase()) {
+    if (rawCh === ' ') {
+      inNum = false;
+      cells.push({ dots: [], kind: 'space', char: ' ' });
+      continue;
+    }
+    const isDigit = rawCh >= '0' && rawCh <= '9';
+    if (compact && isDigit) {
+      // Compact mode: skip indicator, use lowered-digit dots directly.
+      cells.push({ dots: LOWER_DIGIT_DOTS[rawCh] || [], kind: 'lowerDigit', char: rawCh });
+      continue;
+    }
+    if (isDigit && !inNum) {
+      cells.push({ dots: NUM_INDICATOR_DOTS, kind: 'numSign', char: '⠼' });
+      inNum = true;
+    } else if (!isDigit && inNum) {
+      inNum = false;
+      if (DIGIT_LOOKALIKES.includes(rawCh)) {
+        cells.push({ dots: LETTER_INDICATOR_DOTS, kind: 'letterSign', char: '⠰' });
+      }
+    }
+    cells.push({ dots: UEB_DOTS[rawCh] || [], kind: 'char', char: rawCh });
+  }
+  return cells;
+}
+
+function codeCellCount(code, options) { return codeToBrailleCells(code, options).length; }
+
+function toBraille(code, options) {
+  return codeToBrailleCells(code, options).map(c =>
+    c.kind === 'space' ? '⠀' : dotsToUnicode(c.dots)).join('');
+}
 
 // Ordered abbreviation rules ported from annotate_v2.py SMART_ABBREVS.
 // Longer/compound patterns precede shorter ones.
@@ -241,24 +303,47 @@ function ensureUid(region) {
   return region.uid;
 }
 
-function createBrailleMesh(code, cx, cy, z, rotation = 0, scale = 1.0) {
+// Review mode toggles a translucent map base + glowing gold braille dots so
+// the user can visually audit what's been annotated without the surface
+// clutter. Two shared materials so every braille mesh animates together.
+const MAT_BRAILLE_DEFAULT = new THREE.MeshPhongMaterial({ color: 0xffffff });
+const MAT_BRAILLE_REVIEW = new THREE.MeshPhongMaterial({
+  color: 0xffd700,
+  emissive: 0xffaa00,
+  emissiveIntensity: 0.75,
+  shininess: 120,
+});
+const MAT_BRAILLE_ISSUE = new THREE.MeshPhongMaterial({
+  color: 0xff4040,
+  emissive: 0xcc1010,
+  emissiveIntensity: 0.85,
+  shininess: 100,
+});
+let reviewMode = false;
+function brailleMaterial() { return reviewMode ? MAT_BRAILLE_REVIEW : MAT_BRAILLE_DEFAULT; }
+
+function createBrailleMesh(code, cx, cy, z, rotation = 0, scale = 1.0, options = {}) {
   const s = scale;
   const dotR = DOT_R * s, dotH = DOT_H * s, dotSp = DOT_SP * s, cellGap = CELL_GAP * s;
 
+  // Expand the code into physical cells. Compact mode uses lowered digits
+  // (1 cell each, no indicator); standard mode is strict UEB.
+  const cells = codeToBrailleCells(code, options);
   const offsets = [];
   let cellX = 0;
-  for (const ch of code.toUpperCase()) {
-    for (const d of (UEB_DOTS[ch] || [])) {
+  for (const cell of cells) {
+    for (const d of cell.dots) {
       const row = (d - 1) % 3, col = (d - 1) >= 3 ? 1 : 0;
       offsets.push([cellX + col * dotSp, -row * dotSp]);
     }
     cellX += cellGap;
   }
-  const labelW = (code.length - 1) * cellGap + dotSp;
+  const cellCount = cells.length;
+  const labelW = (cellCount - 1) * cellGap + dotSp;
   const labelH = 2 * dotSp;
 
   const group = new THREE.Group();
-  const mat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+  const mat = brailleMaterial();
   for (const [dx, dy] of offsets) {
     let lx = dx - labelW / 2;
     let ly = dy + labelH / 2;
@@ -301,9 +386,25 @@ function updateBrailleMesh(region) {
   if (!region.code) return;
   const mesh = createBrailleMesh(
     region.code, region.cx, region.cy, region.z,
-    region.rotation || 0, region.scale || 1.0);
+    region.rotation || 0, region.scale || 1.0,
+    { compactDigits: region.compactDigits === true });
   scene.add(mesh);
   brailleMeshes.set(region.id, mesh);
+  // If review mode is on, re-run issue detection so colors stay accurate
+  // when the user drags a dot or edits a code.
+  if (reviewMode && typeof refreshReviewColors === 'function') refreshReviewColors();
+}
+
+// Re-apply gold vs red colors in review mode. Defined up here so
+// updateBrailleMesh can call it before the button handler has loaded.
+function refreshReviewColors() {
+  if (!reviewMode) return;
+  const issues = detectLabelIssues();
+  lastReviewIssues = issues;
+  for (const [rid, grp] of brailleMeshes) {
+    const mat = issues.has(rid) ? MAT_BRAILLE_ISSUE : MAT_BRAILLE_REVIEW;
+    grp.children.forEach(c => { c.material = mat; });
+  }
 }
 
 // ---- Three.js setup ----
@@ -354,7 +455,43 @@ const HOVER_COLOR = new THREE.Color(0.7, 0.85, 1.0);
 const SELECTED_COLOR = new THREE.Color(1.0, 0.92, 0.5);
 const LABELED_COLOR = new THREE.Color(0.7, 0.95, 0.7);
 
+// Wipe every piece of annotation state. Called on STL load so a new file
+// never inherits labels/dots/cache from the previous one, and also by the
+// "Clear all" toolbar button to reset the current session without reloading.
+function clearAllAnnotations({ keepRegions = false } = {}) {
+  // Remove every physical braille mesh from the 3D scene.
+  for (const [, grp] of brailleMeshes) scene.remove(grp);
+  brailleMeshes.clear();
+  // Drop free labels entirely. Region labels are wiped in-place so the
+  // rooftops stay selectable (only their name/code/osm fields get cleared).
+  freeLabels = [];
+  if (keepRegions) {
+    for (const r of regions) {
+      if (r.isFree) continue;
+      r.name = ''; r.code = ''; r.description = '';
+      r.rotation = 0; r.scale = 1.0;
+      r.osm = null; r.compactDigits = false;
+      delete r.uid;
+    }
+    regions = regions.filter(r => !r.isFree);
+  } else {
+    regions = [];
+  }
+  selectedRegion = null;
+  pendingOsmMatch = null;
+  lastReviewIssues = null;
+  if (typeof osmMarker !== 'undefined' && osmMarker && leafletMap) {
+    leafletMap.removeLayer(osmMarker);
+    osmMarker = null;
+  }
+  uidCounter = 0;
+}
+
 function loadSTL(buffer, fileName) {
+  // A fresh STL means a fresh session — throw out every dot, free label,
+  // and selection from any previous load.
+  clearAllAnnotations({ keepRegions: false });
+
   stlFileName = fileName;
   // Remove old mesh
   if (stlMesh) scene.remove(stlMesh);
@@ -507,6 +644,21 @@ function detectRegions(geometry) {
   }
   regions.sort((a, b) => b.area - a.area);
   regions.forEach((r, i) => r.id = i + 1);
+
+  // Flag all map-base / ground regions so "on map base" review checks fire
+  // and click-selection ignores them. Z-based: anything within 0.5mm of the
+  // lowest region z, with at least 5% of total area (filters mesh noise). This
+  // is more robust than an area-ratio heuristic on dense downtowns where many
+  // large rooftops dilute the base's relative share.
+  if (regions.length >= 2) {
+    const minZ = Math.min(...regions.map(r => r.z));
+    const total = regions.reduce((s, r) => s + r.area, 0);
+    for (const r of regions) {
+      if (r.z <= minZ + 0.5 && r.area / total >= 0.05) {
+        r.isBackground = true;
+      }
+    }
+  }
 
   console.log(`Detected ${regions.length} surface regions`);
 }
@@ -670,6 +822,169 @@ document.getElementById('btn-topview').addEventListener('click', () => {
   controls.update();
 });
 
+// Detect label issues: pierces the map base, overlaps another label, or
+// floats with no surface directly beneath it. Used by Review mode to paint
+// problem dots red instead of gold so they're easy to spot and fix.
+function labelWidthMm(r) {
+  const s = r.scale || 1.0;
+  const len = codeCellCount(r.code || '', { compactDigits: r.compactDigits === true });
+  if (!len) return 0;
+  return (len - 1) * CELL_GAP * s + DOT_SP * s + DOT_R * 2 * s;
+}
+function labelHeightMm(r) {
+  const s = r.scale || 1.0;
+  return DOT_SP * 2 * s + DOT_R * 2 * s;
+}
+
+function detectLabelIssues() {
+  const issues = new Map(); // region.id -> array of issue strings
+  if (!stlMesh) return issues;
+  const add = (rid, msg) => {
+    if (!issues.has(rid)) issues.set(rid, []);
+    issues.get(rid).push(msg);
+  };
+  const labeled = regions.filter(r => r.code);
+
+  // 1. Pierce: dot geometry extends below the STL's floor plane.
+  stlMesh.geometry.computeBoundingBox();
+  const floorZ = stlMesh.geometry.boundingBox.min.z;
+  for (const r of labeled) {
+    const grp = brailleMeshes.get(r.id);
+    if (!grp) continue;
+    const box = new THREE.Box3().setFromObject(grp);
+    if (isFinite(box.min.z) && box.min.z < floorZ - 0.01) {
+      add(r.id, `pierces base (${(floorZ - box.min.z).toFixed(2)}mm below)`);
+    }
+  }
+
+  // 2. Overlap: two label rectangles share XY footprint.
+  for (let i = 0; i < labeled.length; i++) {
+    for (let j = i + 1; j < labeled.length; j++) {
+      const a = labeled[i], b = labeled[j];
+      const aw = labelWidthMm(a), ah = labelHeightMm(a);
+      const bw = labelWidthMm(b), bh = labelHeightMm(b);
+      if (Math.abs(a.cx - b.cx) < (aw + bw) / 2
+          && Math.abs(a.cy - b.cy) < (ah + bh) / 2) {
+        add(a.id, `overlaps #${b.id}`);
+        add(b.id, `overlaps #${a.id}`);
+      }
+    }
+  }
+
+  // 3. Ray-based placement checks. We check the label center AND the four
+  // corners of the label rectangle. If a corner hits a different region
+  // (or misses the mesh entirely), part of the label is extending off its
+  // intended rooftop — flag it so the author can resize / reposition.
+  const downRay = new THREE.Raycaster();
+  const upRay = new THREE.Raycaster();
+  const DOWN = new THREE.Vector3(0, 0, -1);
+  const UP = new THREE.Vector3(0, 0, 1);
+
+  function castDown(x, y, startZ) {
+    downRay.set(new THREE.Vector3(x, y, startZ), DOWN);
+    return downRay.intersectObject(stlMesh);
+  }
+
+  for (const r of labeled) {
+    // --- center checks ---
+    const centerHits = castDown(r.cx, r.cy, r.z + 0.5);
+    let centerRegion = null;
+    if (!centerHits.length) {
+      add(r.id, 'floating (no surface below)');
+    } else {
+      const gap = r.z - centerHits[0].point.z;
+      if (gap > 2.0) add(r.id, `floating (${gap.toFixed(1)}mm above surface)`);
+      centerRegion = getRegionAtFace(centerHits[0].faceIndex);
+      if (centerRegion && centerRegion.isBackground) {
+        add(r.id, 'on map base (no building underneath)');
+      }
+    }
+
+    // --- buried check ---
+    upRay.set(new THREE.Vector3(r.cx, r.cy, r.z + 0.05), UP);
+    const upHits = upRay.intersectObject(stlMesh);
+    if (upHits.length) {
+      const above = upHits[0].point.z - r.z;
+      add(r.id, `buried under surface (${above.toFixed(1)}mm above)`);
+    }
+
+    // --- cross-region check: probe corners AND edge midpoints of the label
+    // rectangle. If any sampled point lands on a different region than the
+    // center (different rooftop, different building, or background), the
+    // label is straddling a boundary and should be flagged. 8 samples + the
+    // center is enough to catch edge crossings we'd miss with 4 corners only.
+    const hw = labelWidthMm(r) / 2, hh = labelHeightMm(r) / 2;
+    if (hw > 0 && hh > 0) {
+      const rot = ((r.rotation || 0) * Math.PI) / 180;
+      const cos = Math.cos(rot), sin = Math.sin(rot);
+      const samples = [
+        [-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh],        // corners
+        [0,-hh],[hw,0],[0,hh],[-hw,0],              // edge midpoints
+      ];
+      const regionIds = new Set();
+      if (centerRegion) regionIds.add(centerRegion.id);
+      let offMesh = false;
+      for (const [lx, ly] of samples) {
+        const x = r.cx + lx * cos - ly * sin;
+        const y = r.cy + lx * sin + ly * cos;
+        const hs = castDown(x, y, r.z + 0.5);
+        if (!hs.length) { offMesh = true; continue; }
+        const reg = getRegionAtFace(hs[0].faceIndex);
+        if (reg) regionIds.add(reg.id);
+      }
+      if (offMesh) add(r.id, 'extends off map edge');
+      if (regionIds.size > 1) {
+        add(r.id, `spans ${regionIds.size} regions`);
+      }
+    }
+  }
+
+  return issues;
+}
+
+// Review mode: translucent base + glowing braille dots. Good dots glow gold;
+// dots with issues (pierce / overlap / float) glow red so user can fix them.
+const reviewBtn = document.getElementById('btn-review');
+let lastReviewIssues = null;
+reviewBtn.addEventListener('click', () => {
+  reviewMode = !reviewMode;
+  reviewBtn.style.background = reviewMode ? '#ffb400' : '#555';
+  reviewBtn.style.color = reviewMode ? '#222' : '#fff';
+  reviewBtn.textContent = reviewMode ? 'Review: ON' : 'Review';
+  if (stlMesh) {
+    const m = stlMesh.material;
+    m.transparent = reviewMode;
+    m.opacity = reviewMode ? 0.25 : 1.0;
+    m.depthWrite = !reviewMode;
+    m.needsUpdate = true;
+  }
+  if (reviewMode) {
+    const issues = detectLabelIssues();
+    lastReviewIssues = issues;
+    for (const [rid, grp] of brailleMeshes) {
+      const mat = issues.has(rid) ? MAT_BRAILLE_ISSUE : MAT_BRAILLE_REVIEW;
+      grp.children.forEach(c => { c.material = mat; });
+    }
+    const issueCount = issues.size;
+    const total = regions.filter(r => r.code).length;
+    const statusEl = document.getElementById('status');
+    if (issueCount > 0) {
+      statusEl.textContent = `Review: ${issueCount} issue${issueCount === 1 ? '' : 's'} of ${total} labels (red dots)`;
+      statusEl.style.color = '#c0392b';
+    } else {
+      statusEl.textContent = `Review: all ${total} labels OK`;
+      statusEl.style.color = '#2e7d32';
+    }
+  } else {
+    lastReviewIssues = null;
+    for (const [, grp] of brailleMeshes) {
+      grp.children.forEach(c => { c.material = MAT_BRAILLE_DEFAULT; });
+    }
+    document.getElementById('status').style.color = '';
+    updateStatus();
+  }
+});
+
 renderer.domElement.addEventListener('click', e => {
   if (isDragging) return;
 
@@ -747,12 +1062,54 @@ renderer.domElement.addEventListener('click', e => {
   // Normal click: select a region by its surface face
   const region = getRegionAtFace(faceIndex);
   if (region) {
+    // Skip the giant ground plane / background — clicking there is almost
+    // always a misfire and selecting it wastes screen state.
+    if (region.isBackground) {
+      setModeHint('Map base clicked. Use + Free Label for open ground, or pick a rooftop', '#c0392b');
+      const freeBtn = document.getElementById('btn-place');
+      freeBtn.classList.remove('flash');
+      void freeBtn.offsetWidth; // restart CSS animation if already flashed
+      freeBtn.classList.add('flash');
+      setTimeout(() => freeBtn.classList.remove('flash'), 1600);
+      setTimeout(() => setModeHint('Click a rooftop to select'), 3000);
+      return;
+    }
     selectedRegion = region;
     // Reverse-flow attach: if a map building is waiting, bind it here.
     if (consumePendingOsmMatch(region)) return;
     resetAllColors();
     highlightRegion(region, SELECTED_COLOR);
     renderDetail();
+  }
+});
+
+// Keyboard shortcuts for the 3D view. Ignored while typing in inputs /
+// textareas and while the confirm modal is open so they don't steal keys.
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (document.getElementById('confirm-modal').classList.contains('show')) return;
+
+  // Esc: clear selection + any pending map-to-rooftop attach.
+  if (e.key === 'Escape') {
+    let touched = false;
+    if (selectedRegion) { selectedRegion = null; touched = true; }
+    if (pendingOsmMatch) { pendingOsmMatch = null; touched = true; }
+    if (osmMarker) { leafletMap.removeLayer(osmMarker); osmMarker = null; touched = true; }
+    if (touched) {
+      setModeHint('Click a rooftop to select');
+      resetAllColors();
+      renderDetail();
+      renderLegend();
+    }
+    return;
+  }
+
+  // Delete / Backspace: delete the selected label. For region labels, clears
+  // the code/name/OSM. For free labels, removes the label entirely.
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedRegion) {
+    e.preventDefault();
+    clearLabel();
   }
 });
 
@@ -764,13 +1121,45 @@ function renderDetail() {
     return;
   }
   const r = selectedRegion;
-  const braille = r.code ? toBraille(r.code) : '';
+  const braille = r.code ? toBraille(r.code, { compactDigits: r.compactDigits === true }) : '';
   const isFree = r.isFree;
   const scale = r.scale || 1.0;
   const osm = r.osm;
+  const osmCategory = osm && osm.category
+    ? ` &nbsp; <span style="background:#eef6ff;color:#1e6fff;padding:1px 5px;border-radius:3px;font-size:10px">${osm.category}${osm.subClass ? ` · ${osm.subClass}` : ''}</span>`
+    : '';
+  const spatialBits = [];
+  if (osm && osm.spatial) {
+    if (osm.spatial.position) spatialBits.push(osm.spatial.position);
+    if (osm.spatial.edge) spatialBits.push(`touches ${osm.spatial.edge} edge`);
+    if (osm.spatial.coveragePct != null) spatialBits.push(`covers ${osm.spatial.coveragePct}% of view`);
+  }
+  const spatialLine = spatialBits.length
+    ? `<br><span style="color:#777;font-size:10px">${spatialBits.join(' · ')}</span>`
+    : '';
+  const kt = (osm && osm.keyTags) || {};
+  const wikiBits = [];
+  if (kt.wikipedia) {
+    const href = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(kt.wikipedia.replace(/^en:/, ''));
+    wikiBits.push(`<a href="${href}" target="_blank" rel="noopener" style="color:#1e6fff">Wikipedia↗</a>`);
+  }
+  if (kt.wikidata) {
+    wikiBits.push(`<a href="https://www.wikidata.org/wiki/${kt.wikidata}" target="_blank" rel="noopener" style="color:#1e6fff">Wikidata↗</a>`);
+  }
+  if (osm && osm.osm_id && osm.osm_type) {
+    wikiBits.push(`<a href="https://www.openstreetmap.org/${osm.osm_type}/${osm.osm_id}" target="_blank" rel="noopener" style="color:#1e6fff">OSM↗</a>`);
+  }
+  const wikiLine = wikiBits.length
+    ? `<br><span style="font-size:10px">${wikiBits.join(' · ')}</span>`
+    : '';
+  // Review-mode issue list for this region (pierce / overlap / float).
+  const myIssues = reviewMode && lastReviewIssues && lastReviewIssues.get(r.id);
+  const issueLine = (myIssues && myIssues.length)
+    ? `<br><span style="background:#ffe5e0;color:#c0392b;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600">⚠ ${myIssues.join(' · ')}</span>`
+    : '';
   const osmLine = osm
-    ? `<br><b>OSM:</b> ${osm.name || '(unnamed)'} &nbsp; <b>GPS:</b> ${(+osm.lat).toFixed(6)}, ${(+osm.lon).toFixed(6)}`
-    : '<br><span style="color:#aaa">No OSM match yet (click a building on the map)</span>';
+    ? `<br><b>OSM:</b> ${osm.name || '(unnamed)'}${osmCategory}<br><b>GPS:</b> ${(+osm.lat).toFixed(6)}, ${(+osm.lon).toFixed(6)}${spatialLine}${wikiLine}${issueLine}`
+    : `<br><span style="color:#aaa">No OSM match yet (click a building on the map)</span>${issueLine}`;
   el.innerHTML = `
     <div style="font-weight:600;margin-bottom:6px">${isFree ? 'Free Label' : 'Region'} #${r.id}</div>
     <div class="info">${isFree ? '<b>Free placement</b>' : '<b>Faces:</b> '+r.faceIndices.length+' &nbsp; <b>Size:</b> '+r.w.toFixed(0)+'x'+r.h.toFixed(0)+'mm'}<br>
@@ -786,7 +1175,13 @@ function renderDetail() {
     <div class="braille-box">
       <div class="meta">Braille Preview</div>
       <div class="dots">${braille||'...'}</div>
-      <div class="meta" id="braille-meta">${r.code ? r.code+' ('+r.code.length+' cells)' : ''}</div>
+      <div class="meta" id="braille-meta">${r.code ? r.code+' ('+codeCellCount(r.code, { compactDigits: r.compactDigits === true })+' cells)' : ''}</div>
+    </div>
+    <div class="field" style="margin-top:6px">
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-size:10px;color:#555;cursor:pointer">
+        <input type="checkbox" id="inp-compact" ${r.compactDigits ? 'checked' : ''} style="margin:0;width:auto">
+        <span>Compact digits (lowered, saves a cell; not strict UEB)</span>
+      </label>
     </div>
     <div class="field">
       <label>Description (legend)</label>
@@ -807,10 +1202,14 @@ function renderDetail() {
   document.getElementById('inp-code').addEventListener('input', function() {
     const c = this.value.toUpperCase();
     const sc = selectedRegion ? (selectedRegion.scale||1) : 1;
-    const widthMm = c.length > 0 ? ((c.length-1)*6*sc + 2.5*sc).toFixed(1) : '0';
-    document.querySelector('.braille-box .dots').textContent = c ? toBraille(c) : '...';
+    const opts = { compactDigits: !!(selectedRegion && selectedRegion.compactDigits) };
+    // Physical cell count reflects the current mode (standard UEB or compact
+    // lowered digits), so the width estimate matches what will actually print.
+    const physCells = codeCellCount(c, opts);
+    const widthMm = physCells > 0 ? ((physCells - 1) * CELL_GAP * sc + DOT_SP * sc).toFixed(1) : '0';
+    document.querySelector('.braille-box .dots').textContent = c ? toBraille(c, opts) : '...';
     document.getElementById('braille-meta').textContent = c
-      ? `${c} (${c.length} cells, ${widthMm}mm wide, dot ${(0.8*sc).toFixed(1)}mm)`
+      ? `${c} (${physCells} cells, ${widthMm}mm wide, dot ${(DOT_R*2*sc).toFixed(1)}mm${opts.compactDigits ? ', compact digits' : ''})`
       : '';
   });
   document.getElementById('inp-rot').addEventListener('input', function() {
@@ -827,8 +1226,22 @@ function renderDetail() {
       updateBrailleMesh(selectedRegion);
     }
   });
+  const inpCompact = document.getElementById('inp-compact');
+  if (inpCompact) {
+    inpCompact.addEventListener('change', function() {
+      if (!selectedRegion) return;
+      selectedRegion.compactDigits = this.checked;
+      updateBrailleMesh(selectedRegion);
+      // Refresh the inline preview so "cells" count / width reflect the mode.
+      const codeEvent = new Event('input');
+      document.getElementById('inp-code').dispatchEvent(codeEvent);
+      renderLegend();
+      autoSave();
+    });
+  }
   document.getElementById('btn-save-label').addEventListener('click', saveLabel);
   document.getElementById('btn-clear-label').addEventListener('click', clearLabel);
+  highlightLegendRow();
 }
 
 // Auto-save: persist all labels to server after every change
@@ -849,7 +1262,8 @@ function autoSave() {
       y_max: +((r.cy||0) + (r.h||0)/2).toFixed(1),
       area: r.area||0, name: r.name, code: r.code,
       description: r.description,
-      braille: toBraille(r.code),
+      braille: toBraille(r.code, { compactDigits: r.compactDigits === true }),
+      compactDigits: r.compactDigits === true,
       rotation: r.rotation||0, scale: r.scale||1.0,
       isFree: !!r.isFree,
       osm: r.osm || null,
@@ -871,6 +1285,8 @@ function saveLabel() {
   selectedRegion.description = document.getElementById('inp-desc').value;
   selectedRegion.rotation = parseInt(document.getElementById('inp-rot').value) || 0;
   selectedRegion.scale = parseInt(document.getElementById('inp-scale').value) / 100;
+  const compactEl = document.getElementById('inp-compact');
+  if (compactEl) selectedRegion.compactDigits = compactEl.checked;
   if (selectedRegion.code) ensureUid(selectedRegion);
   updateBrailleMesh(selectedRegion);
   resetAllColors();
@@ -907,9 +1323,11 @@ function renderLegend() {
   const el = document.getElementById('legend');
   const labeled = regions.filter(r => r.code);
   if (!labeled.length) { el.innerHTML = '<div class="empty">No labels yet</div>'; return; }
+  const activeId = selectedRegion && selectedRegion.id;
   let html = `<div style="font-weight:600;margin-bottom:6px">Labels (${labeled.length}/${regions.length})</div><table><tr><th>Code</th><th>Braille</th><th>Name</th></tr>`;
   labeled.forEach(r => {
-    html += `<tr data-rid="${r.id}"><td>${r.code}</td><td class="bc">${toBraille(r.code)}</td><td>${r.description||r.name}</td></tr>`;
+    const cls = r.id === activeId ? ' class="active"' : '';
+    html += `<tr data-rid="${r.id}"${cls}><td>${r.code}</td><td class="bc">${toBraille(r.code, { compactDigits: r.compactDigits === true })}</td><td>${r.description||r.name}</td></tr>`;
   });
   html += '</table>';
   el.innerHTML = html;
@@ -922,6 +1340,22 @@ function renderLegend() {
       renderDetail();
     });
   });
+  highlightLegendRow();
+}
+
+// Update the `.active` class on legend rows without rebuilding the table;
+// scroll the matching row into view. Called every time the 3D selection
+// changes so the right-side list mirrors what's selected on the model.
+function highlightLegendRow() {
+  const el = document.getElementById('legend');
+  const activeId = selectedRegion && selectedRegion.id;
+  let activeRow = null;
+  el.querySelectorAll('tr[data-rid]').forEach(tr => {
+    const on = activeId != null && +tr.dataset.rid === activeId;
+    tr.classList.toggle('active', on);
+    if (on) activeRow = tr;
+  });
+  if (activeRow) activeRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 function updateStatus() {
@@ -942,11 +1376,50 @@ document.getElementById('file-input').addEventListener('change', e => {
   reader.readAsArrayBuffer(file);
 });
 
+function triggerDownload(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+document.getElementById('btn-clear-all').addEventListener('click', async () => {
+  const labeledCount = regions.filter(r => r.code).length;
+  const freeCount = freeLabels.length;
+  const total = labeledCount + freeCount;
+  if (!total) {
+    document.getElementById('status').textContent = 'Nothing to clear.';
+    return;
+  }
+  const ok = await showConfirm({
+    title: 'Clear all braille labels?',
+    current: `${total} labels on ${stlFileName || 'this map'}`,
+    replacement: 'No labels (STL stays loaded)',
+    okText: 'Clear all',
+    cancelText: 'Keep',
+  });
+  if (!ok) return;
+  clearAllAnnotations({ keepRegions: true });
+  resetAllColors();
+  renderDetail();
+  renderLegend();
+  updateStatus();
+  autoSave();
+  document.getElementById('status').textContent = `Cleared ${total} labels.`;
+});
+
 document.getElementById('btn-export').addEventListener('click', () => {
   const labeled = regions.filter(r => r.code);
-  if (!labeled.length) return;
-  const out = {
+  if (!labeled.length) { alert('No labels yet.'); return; }
+  const base = (stlFileName || 'map').replace(/\.stl$/i, '');
+  const legendText = buildLegendText(labeled, base);
+  const mapContentText = buildMapContentText(labeled, base);
+  const bundle = {
     stl_file: stlFileName,
+    generated_at: new Date().toISOString(),
     uid_prefix: UID_PREFIX,
     next_uid: uidCounter + 1,
     blocks: labeled.map(r => ({
@@ -956,18 +1429,21 @@ document.getElementById('btn-export').addEventListener('click', () => {
       x_min: +(r.cx - r.w/2).toFixed(1), x_max: +(r.cx + r.w/2).toFixed(1),
       y_min: +(r.cy - r.h/2).toFixed(1), y_max: +(r.cy + r.h/2).toFixed(1),
       area: r.area, name: r.name, code: r.code, description: r.description,
-      braille: toBraille(r.code), rotation: r.rotation || 0, scale: r.scale || 1.0,
+      braille: toBraille(r.code, { compactDigits: r.compactDigits === true }),
+      compactDigits: r.compactDigits === true,
+      rotation: r.rotation || 0, scale: r.scale || 1.0,
       osm: r.osm || null,
     })),
+    legend_text: legendText,
+    map_content_text: mapContentText,
   };
-  // Also try saving to server
-  fetch('/save_labels', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(out) }).catch(()=>{});
-  // Download
-  const blob = new Blob([JSON.stringify(out, null, 2)], {type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = stlFileName.replace('.stl','_labels.json');
-  a.click();
+  fetch('/save_labels', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(bundle) }).catch(()=>{});
+  // Three siblings from one click: the JSON is the round-trippable source of
+  // truth (import reads only `blocks`); the two .txt files are carved out for
+  // braille embossers and sighted companions respectively.
+  triggerDownload(JSON.stringify(bundle, null, 2), `${base}_annotations.json`, 'application/json');
+  triggerDownload(legendText, `${base}_legend.txt`, 'text/plain;charset=utf-8');
+  triggerDownload(mapContentText, `${base}_mapcontent.txt`, 'text/plain;charset=utf-8');
 });
 
 document.getElementById('btn-import').addEventListener('click', () => {
@@ -997,6 +1473,7 @@ document.getElementById('btn-import').addEventListener('click', () => {
             description: ib.description || '',
             rotation: ib.rotation || 0, scale: ib.scale || 1.0,
             osm: ib.osm || null,
+            compactDigits: ib.compactDigits === true,
           };
           freeLabels.push(fl);
           regions.push(fl);
@@ -1091,26 +1568,99 @@ document.getElementById('btn-download-stl').addEventListener('click', () => {
   }, 50);
 });
 
-document.getElementById('btn-download-legend').addEventListener('click', () => {
-  const labeled = regions.filter(r => r.code);
-  if (!labeled.length) { alert('No labels yet.'); return; }
-
-  const base = stlFileName.replace('.stl', '');
-  let text = `Braille Legend: ${base}\n${'='.repeat(50)}\n`;
+// Pure text builders — reused both by the in-browser export and by anyone who
+// wants to re-generate the .txt outputs later from the single JSON bundle.
+function buildLegendText(labeled, baseName) {
+  let text = `Braille Legend: ${baseName}\n${'='.repeat(50)}\n`;
   text += `${'Code'.padStart(5)}  ${'Braille'.padStart(8)}  Name\n${'-'.repeat(50)}\n`;
   for (const r of labeled) {
     const name = r.description || r.name || r.code;
-    text += `${r.code.padStart(5)}  ${toBraille(r.code).padStart(8)}  ${name}\n`;
+    text += `${r.code.padStart(5)}  ${toBraille(r.code, { compactDigits: r.compactDigits === true }).padStart(8)}  ${name}\n`;
   }
+  return text;
+}
 
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${base}_legend.txt`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-});
+// Touch Mapper style "Map content" grouped text. Uses the osm.mainClass /
+// osm.subClass classification and osm.spatial hints we already attach. Runs
+// fully in the browser from the in-memory regions — no Python, no server.
+const MAP_CONTENT_SECTIONS = [
+  ['C', 'C1_landmark',         'Landmarks'],
+  ['C', 'C2_public',           'Public buildings'],
+  ['C', 'C3_other_buildings',  'Buildings'],
+  ['D', 'D1_transport',        'Transport'],
+  ['D', 'D2_civic',            'Civic services'],
+  ['D', 'D3_commercial',       'Shops and food'],
+  ['D', 'D4_leisure_cultural', 'Leisure / cultural'],
+  ['D', 'D_other_pois',        'Familiar places'],
+];
+
+function formatMapContentEntry(r) {
+  const osm = r.osm || {};
+  const name = r.description || r.name || osm.name || r.code || '(unnamed)';
+  const head = [`  ${name}`];
+  if (osm.category) head[0] += ` (${osm.category})`;
+  if (r.code) head[0] += `  [${r.code}]`;
+  const lines = [head[0]];
+  const sp = osm.spatial || {};
+  const bits = [];
+  if (sp.position) bits.push(sp.position);
+  if (sp.edge) bits.push(`touches ${sp.edge} edge`);
+  if (sp.coveragePct != null) bits.push(`covers ${sp.coveragePct}% of view`);
+  if (osm.lat != null && osm.lon != null) bits.push(`GPS ${(+osm.lat).toFixed(5)}, ${(+osm.lon).toFixed(5)}`);
+  if (bits.length) lines.push('    ' + bits.join(' · '));
+  const kt = osm.keyTags || {};
+  const wiki = [];
+  if (kt.wikipedia) wiki.push(`Wikipedia: https://en.wikipedia.org/wiki/${encodeURIComponent(kt.wikipedia.replace(/^en:/, ''))}`);
+  if (kt.wikidata) wiki.push(`Wikidata:  https://www.wikidata.org/wiki/${kt.wikidata}`);
+  if (osm.osm_id && osm.osm_type) wiki.push(`OSM:       https://www.openstreetmap.org/${osm.osm_type}/${osm.osm_id}`);
+  for (const link of wiki) lines.push('    ' + link);
+  return lines.join('\n');
+}
+
+function buildMapContentText(labeled, baseName) {
+  const buckets = new Map();
+  const unclassified = [];
+  for (const r of labeled) {
+    const osm = r.osm || {};
+    const key = osm.mainClass && osm.subClass ? `${osm.mainClass}|${osm.subClass}` : null;
+    if (key) {
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(r);
+    } else {
+      unclassified.push(r);
+    }
+  }
+  const sortByName = arr => arr.sort((a, b) => {
+    const na = (a.description || a.name || '').toLowerCase();
+    const nb = (b.description || b.name || '').toLowerCase();
+    return na.localeCompare(nb);
+  });
+  const total = labeled.length;
+  const named = labeled.filter(r => (r.osm || {}).name).length;
+  let text = `Map content: ${baseName}\n${'='.repeat(Math.max(24, baseName.length + 13))}\n`;
+  text += `${total} labels · ${named} OSM-linked\n\n`;
+  const seen = new Set();
+  for (const [main, sub, title] of MAP_CONTENT_SECTIONS) {
+    const key = `${main}|${sub}`;
+    const items = buckets.get(key);
+    if (!items || !items.length) continue;
+    seen.add(key);
+    text += `${title}\n${'-'.repeat(title.length)}\n`;
+    for (const r of sortByName(items.slice())) text += formatMapContentEntry(r) + '\n\n';
+  }
+  for (const [key, items] of buckets) {
+    if (seen.has(key)) continue;
+    const [main, sub] = key.split('|');
+    const title = `${main} / ${sub}`;
+    text += `${title}\n${'-'.repeat(title.length)}\n`;
+    for (const r of sortByName(items.slice())) text += formatMapContentEntry(r) + '\n\n';
+  }
+  if (unclassified.length) {
+    text += `Unclassified\n${'-'.repeat('Unclassified'.length)}\n`;
+    for (const r of sortByName(unclassified.slice())) text += formatMapContentEntry(r) + '\n\n';
+  }
+  return text.trimEnd() + '\n';
+}
 
 // Drag & drop STL files
 document.addEventListener('dragover', e => e.preventDefault());
@@ -1263,28 +1813,58 @@ async function fetchWithTimeout(url, opts, ms) {
   finally { clearTimeout(t); }
 }
 
+// Race all healthy Overpass mirrors in parallel with Promise.any, then
+// escalate the timeout if the first round all fails. Winner's response is
+// returned; losing siblings are aborted immediately. Touch Mapper's server
+// tries mirrors sequentially — that's actually a weakness we beat here.
 async function queryOverpass(q, onStatus) {
+  const rounds = [20000, 60000]; // 20s fast race, then 60s patient retry
   let lastErr;
-  const now = Date.now();
-  for (const url of OVERPASS_ENDPOINTS) {
-    if ((overpassCooldown.get(url) || 0) > now) continue;
-    const host = new URL(url).hostname;
-    if (onStatus) onStatus(`Prefetching OSM via ${host}...`);
-    try {
-      const resp = await fetchWithTimeout(url, {
+
+  for (const timeoutMs of rounds) {
+    const now = Date.now();
+    const live = OVERPASS_ENDPOINTS.filter(
+      url => (overpassCooldown.get(url) || 0) <= now);
+    if (!live.length) break;
+
+    if (onStatus) {
+      onStatus(`Racing ${live.length} Overpass mirrors (${timeoutMs / 1000}s)...`);
+    }
+
+    const ctrls = live.map(() => new AbortController());
+    const attempts = live.map((url, i) => {
+      const ctrl = ctrls[i];
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      return fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'data=' + encodeURIComponent(q),
-      }, 12000);
-      if (resp.status === 403 || resp.status === 429) {
-        overpassCooldown.set(url, Date.now() + OVERPASS_COOLDOWN_MS);
-        throw new Error(`HTTP ${resp.status} (rate-limited; cooling down)`);
-      }
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
-    } catch (err) { lastErr = err; }
+        signal: ctrl.signal,
+      }).then(async resp => {
+        if (resp.status === 403 || resp.status === 429) {
+          overpassCooldown.set(url, Date.now() + OVERPASS_COOLDOWN_MS);
+          throw new Error(`${new URL(url).hostname}: HTTP ${resp.status}`);
+        }
+        if (!resp.ok) {
+          throw new Error(`${new URL(url).hostname}: HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        // Cancel siblings as soon as one succeeds — saves bandwidth and
+        // doesn't hold Overpass slots we no longer need.
+        ctrls.forEach((c, j) => { if (j !== i) c.abort(); });
+        return data;
+      }).finally(() => clearTimeout(timer));
+    });
+
+    try {
+      return await Promise.any(attempts);
+    } catch (aggErr) {
+      lastErr = aggErr;
+      // Fall through to the next round with a longer timeout.
+    }
   }
-  throw lastErr || new Error('All Overpass mirrors rate-limited or unreachable');
+
+  throw lastErr || new Error('All Overpass mirrors unreachable or rate-limited');
 }
 
 async function nominatimReverse(lat, lng) {
@@ -1306,15 +1886,60 @@ let prefetchInFlight = null;
 let osmPolyLayer = L.layerGroup().addTo(leafletMap);
 
 // Status pill on the map. Collapses to just a dot when idle/ready, expands
-// with inline text while fetching so the user knows what's happening and when
-// data will be ready.
+// with inline text while fetching. In fetching state the label also shows
+// elapsed seconds so the user can tell the request is still alive (Overpass
+// often takes 5-30s and otherwise looks frozen).
 const osmDot = document.getElementById('osm-status');
+let osmDotFetchTimer = null;
+
+// Remember the last 5 prefetch durations so the countdown adapts. Overpass
+// latency varies wildly between mirrors, so a fixed estimate is misleading.
+const OSM_FETCH_HISTORY_KEY = 'osmFetchHistory_v1';
+function loadFetchHistory() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(OSM_FETCH_HISTORY_KEY) || '[]');
+    return Array.isArray(arr) ? arr.filter(n => typeof n === 'number' && n > 0) : [];
+  } catch (e) { return []; }
+}
+function recordFetchDuration(ms) {
+  const hist = loadFetchHistory();
+  hist.push(ms);
+  while (hist.length > 5) hist.shift();
+  localStorage.setItem(OSM_FETCH_HISTORY_KEY, JSON.stringify(hist));
+}
+function estimateFetchMs() {
+  const hist = loadFetchHistory();
+  if (!hist.length) return 8000; // first-run guess: 8s
+  // Use the average + a bit of slack so we don't hit 0 before it's done.
+  const avg = hist.reduce((s, n) => s + n, 0) / hist.length;
+  return Math.min(30000, Math.max(3000, avg * 1.15));
+}
+
 function setOsmDot(state, tip) {
   osmDot.classList.remove('fetching', 'ready', 'error');
   if (state) osmDot.classList.add(state);
-  const labels = { fetching: 'Parsing map...', error: 'OSM failed' };
-  const label = labels[state];
-  osmDot.innerHTML = `<span class="dot"></span>${label ? `<span class="text">${label}</span>` : ''}`;
+  clearInterval(osmDotFetchTimer);
+  osmDotFetchTimer = null;
+  if (state === 'fetching') {
+    const start = Date.now();
+    const estMs = estimateFetchMs();
+    const render = () => {
+      const elapsed = Date.now() - start;
+      const remainingSec = Math.max(0, Math.ceil((estMs - elapsed) / 1000));
+      // Progress asymptotes toward 95% so we never pre-announce completion.
+      const pct = Math.min(95, (elapsed / estMs) * 100);
+      const label = remainingSec > 0
+        ? `Parsing map… ~${remainingSec}s`
+        : `Parsing map… almost done`;
+      osmDot.innerHTML = `<span class="dot"></span><span class="text">${label}</span>`
+        + `<span class="bar" style="width:${pct.toFixed(1)}%"></span>`;
+    };
+    render();
+    osmDotFetchTimer = setInterval(render, 400);
+  } else {
+    const label = state === 'error' ? 'OSM failed' : '';
+    osmDot.innerHTML = `<span class="dot"></span>${label ? `<span class="text">${label}</span>` : ''}`;
+  }
   osmDot.title = tip || '';
 }
 
@@ -1450,9 +2075,11 @@ async function prefetchBuildings(bounds) {
     + `node["name"](${s},${w},${n},${e}););`
     + `out tags geom;`;
   setOsmDot('fetching', 'Prefetching OSM buildings + POIs for this view...');
+  const fetchStart = Date.now();
   prefetchInFlight = (async () => {
     try {
       const data = await queryOverpass(q, null);
+      recordFetchDuration(Date.now() - fetchStart);
       const all = data.elements || [];
       const buildings = all.filter(el =>
         el.type === 'way' && el.geometry && el.geometry.length >= 3);
@@ -1586,6 +2213,196 @@ function showConfirm({ title, current, replacement, okText, cancelText }) {
   });
 }
 
+// Rule-based OSM classifier aligned with touch-mapper-master's
+// map-description-classifications.json. Returns { mainClass, subClass,
+// category, keyTags } so the annotator's exported JSON can be cross-referenced
+// with Touch Mapper's digital-description categories (A/B/C/D/E).
+const OSM_BUILDING_LANDMARK = new Set([
+  'church','cathedral','chapel','mosque','synagogue','temple','shrine',
+  'castle','palace','monastery',
+]);
+const OSM_BUILDING_PUBLIC = new Set([
+  'school','university','college','kindergarten','hospital','public',
+  'government','civic','train_station','fire_station','police','townhall','library',
+]);
+const OSM_AMENITY_LANDMARK = new Set(['place_of_worship']);
+const OSM_AMENITY_PUBLIC = new Set([
+  'school','university','college','kindergarten','hospital','clinic','doctors',
+  'pharmacy','police','fire_station','townhall','courthouse','library',
+]);
+const OSM_AMENITY_TRANSPORT = new Set([
+  'bus_station','taxi','ferry_terminal','bicycle_parking','parking',
+]);
+const OSM_AMENITY_CIVIC = new Set([
+  'atm','bank','post_office','post_box','recycling','toilets',
+  'drinking_water','vending_machine','charging_station',
+]);
+const OSM_AMENITY_COMMERCIAL = new Set([
+  'restaurant','cafe','bar','pub','fast_food','food_court','ice_cream',
+  'biergarten','fuel','marketplace',
+]);
+const OSM_AMENITY_LEISURE = new Set([
+  'theatre','cinema','arts_centre','community_centre','nightclub',
+  'conference_centre','events_venue','planetarium',
+]);
+
+function classifyOsmFeature(tags, osmType) {
+  tags = tags || {};
+  const building = tags.building;
+  const amenity = tags.amenity;
+  const tourism = tags.tourism;
+  const historic = tags.historic;
+  const shop = tags.shop;
+  const leisure = tags.leisure;
+  const railway = tags.railway;
+  const hasWikidata = !!tags.wikidata;
+
+  // C — Buildings
+  if (building) {
+    if (OSM_BUILDING_LANDMARK.has(building)
+        || (amenity && OSM_AMENITY_LANDMARK.has(amenity))
+        || historic || (tourism && tourism !== 'hotel') || hasWikidata) {
+      return { mainClass: 'C', subClass: 'C1_landmark',
+               category: 'Landmark building',
+               keyTags: pickKeyTags(tags) };
+    }
+    if (OSM_BUILDING_PUBLIC.has(building)
+        || (amenity && OSM_AMENITY_PUBLIC.has(amenity))
+        || (tags['building:use'] && OSM_BUILDING_PUBLIC.has(tags['building:use']))) {
+      return { mainClass: 'C', subClass: 'C2_public',
+               category: publicBuildingLabel(building, amenity),
+               keyTags: pickKeyTags(tags) };
+    }
+    return { mainClass: 'C', subClass: 'C3_other_buildings',
+             category: 'Building',
+             keyTags: pickKeyTags(tags) };
+  }
+
+  // D — POIs (Familiar places)
+  if (railway === 'station' || railway === 'tram_stop' || railway === 'subway_entrance'
+      || (amenity && OSM_AMENITY_TRANSPORT.has(amenity))
+      || tags.public_transport) {
+    return { mainClass: 'D', subClass: 'D1_transport',
+             category: 'Transport POI', keyTags: pickKeyTags(tags) };
+  }
+  if (amenity && OSM_AMENITY_CIVIC.has(amenity)) {
+    return { mainClass: 'D', subClass: 'D2_civic',
+             category: humanize(amenity), keyTags: pickKeyTags(tags) };
+  }
+  if (shop || (amenity && OSM_AMENITY_COMMERCIAL.has(amenity))) {
+    return { mainClass: 'D', subClass: 'D3_commercial',
+             category: shop ? `${humanize(shop)} shop` : humanize(amenity),
+             keyTags: pickKeyTags(tags) };
+  }
+  if (leisure || tourism
+      || (amenity && OSM_AMENITY_LEISURE.has(amenity))) {
+    return { mainClass: 'D', subClass: 'D4_leisure_cultural',
+             category: humanize(leisure || tourism || amenity),
+             keyTags: pickKeyTags(tags) };
+  }
+  if (osmType === 'node') {
+    return { mainClass: 'D', subClass: 'D_other_pois',
+             category: humanize(amenity || tourism || 'POI'),
+             keyTags: pickKeyTags(tags) };
+  }
+  return { mainClass: null, subClass: null, category: null,
+           keyTags: pickKeyTags(tags) };
+}
+
+function publicBuildingLabel(building, amenity) {
+  if (building === 'university' || amenity === 'university' || amenity === 'college')
+    return 'University building';
+  if (building === 'school' || amenity === 'school') return 'School building';
+  if (building === 'hospital' || amenity === 'hospital') return 'Hospital';
+  if (amenity === 'library' || building === 'library') return 'Library building';
+  if (building === 'train_station') return 'Train station building';
+  return humanize(building || amenity) + ' building';
+}
+
+function humanize(s) {
+  if (!s) return '';
+  return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Pick only the tags useful for description/semantic sorting. Keeps exported
+// JSON small while preserving everything needed to regenerate classifications.
+function pickKeyTags(tags) {
+  if (!tags) return {};
+  const keep = ['building','building:use','amenity','shop','tourism','historic',
+    'leisure','railway','public_transport','office','operator','brand',
+    'wikidata','wikipedia'];
+  const out = {};
+  for (const k of keep) if (tags[k] != null) out[k] = tags[k];
+  return out;
+}
+
+// Spatial hint in the Touch Mapper style: the polygon centroid's position
+// inside the current map view, rendered as a short English phrase plus an
+// optional edge flag and coverage percentage. Computed against the current
+// Leaflet view bounds at attach time; stored alongside the osm record so the
+// same phrase survives re-exports.
+function computeSpatialHint(match, bounds) {
+  if (!bounds) return null;
+  const s = bounds.getSouth(), w = bounds.getWest();
+  const n = bounds.getNorth(), e = bounds.getEast();
+  const latRange = n - s, lonRange = e - w;
+  if (latRange <= 0 || lonRange <= 0) return null;
+  // Normalized position 0..1 (0 = S/W, 1 = N/E)
+  const nx = (match.center.lon - w) / lonRange;
+  const ny = (match.center.lat - s) / latRange;
+  const horiz = nx < 0.33 ? 'west' : nx > 0.67 ? 'east' : 'center';
+  const vert  = ny < 0.33 ? 'south' : ny > 0.67 ? 'north' : 'center';
+  let position;
+  if (horiz === 'center' && vert === 'center') position = 'In the center';
+  else if (horiz === 'center') position = `In the ${vert} part`;
+  else if (vert === 'center')  position = `In the ${horiz} part`;
+  else position = `In the ${vert}-${horiz} corner`;
+  const edgeMargin = 0.08;
+  let edge = null;
+  if (nx < edgeMargin) edge = 'west';
+  else if (nx > 1 - edgeMargin) edge = 'east';
+  else if (ny < edgeMargin) edge = 'south';
+  else if (ny > 1 - edgeMargin) edge = 'north';
+  const hint = { position, edge,
+    viewBounds: { south: s, west: w, north: n, east: e } };
+  if (match.polygon && match.polygon.length >= 3) {
+    const coverage = polygonCoveragePct(match.polygon, bounds);
+    if (coverage != null) hint.coveragePct = +coverage.toFixed(2);
+  }
+  return hint;
+}
+
+function polygonCoveragePct(poly, bounds) {
+  // Shoelace area in degree^2 (small areas, flat-earth approximation OK).
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [y1, x1] = poly[i];
+    const [y2, x2] = poly[(i + 1) % poly.length];
+    a += x1 * y2 - x2 * y1;
+  }
+  const polyArea = Math.abs(a) / 2;
+  const bboxArea = (bounds.getNorth() - bounds.getSouth())
+    * (bounds.getEast() - bounds.getWest());
+  if (bboxArea <= 0) return null;
+  return (polyArea / bboxArea) * 100;
+}
+
+function buildOsmRecord(match, source) {
+  const classification = classifyOsmFeature(match.tags, match.osm_type);
+  const spatial = computeSpatialHint(match, leafletMap.getBounds());
+  return {
+    lat: match.center.lat, lon: match.center.lon,
+    osm_id: match.osm_id, osm_type: match.osm_type,
+    name: match.name || null,
+    source,
+    mainClass: classification.mainClass,
+    subClass: classification.subClass,
+    category: classification.category,
+    keyTags: classification.keyTags,
+    spatial,
+  };
+}
+
 async function applyOsmMatchToRegion(region, match, source) {
   const osmName = match.name;
   const currentOsmId = region.osm && region.osm.osm_id;
@@ -1617,12 +2434,7 @@ async function applyOsmMatchToRegion(region, match, source) {
       region.description = osmName;
       region.code = makeCode(osmName);
     }
-    region.osm = {
-      lat: match.center.lat, lon: match.center.lon,
-      osm_id: match.osm_id, osm_type: match.osm_type,
-      name: osmName || null,
-      source,
-    };
+    region.osm = buildOsmRecord(match, source);
   } else {
     // Fresh attach (or re-click on the same OSM entity): fill empty fields only,
     // preserving any manual edits the user has typed.
@@ -1630,12 +2442,7 @@ async function applyOsmMatchToRegion(region, match, source) {
     if (osmName && !region.description) region.description = osmName;
     if (osmName && !region.code) region.code = makeCode(osmName);
     if (!region.osm) {
-      region.osm = {
-        lat: match.center.lat, lon: match.center.lon,
-        osm_id: match.osm_id, osm_type: match.osm_type,
-        name: osmName || null,
-        source,
-      };
+      region.osm = buildOsmRecord(match, source);
     }
   }
 
