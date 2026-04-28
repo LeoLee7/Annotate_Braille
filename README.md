@@ -2,7 +2,13 @@
 
 A browser-only companion to [Touch Mapper](https://touch-mapper.org/) that adds UEB braille labels to tactile-map STL files. Touch Mapper generates 3D-printable maps from OpenStreetMap data but leaves them text-free. This editor fills that gap: load an STL, let the built-in OSM panel match buildings for you, and export a print-ready STL with embedded braille dots plus a self-contained annotations JSON.
 
+![Tactile map without annotation versus with braille annotation](comparison.jpg)
+
 **Fully client-side.** No server, no Python, no install. Open `index.html` directly or host on GitHub Pages.
+
+## Try it online
+
+Open the hosted editor at [https://leolee7.github.io/Annotate_Braille/](https://leolee7.github.io/Annotate_Braille/). The default scene loads a tactile map of the area around UCSC Engineering 2, so you can fetch OSM buildings, attach braille labels, and export a print-ready STL straight from the browser, no install required.
 
 ## Quick start
 
