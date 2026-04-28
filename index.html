@@ -1743,6 +1743,7 @@ document.addEventListener('drop', e => {
 
 // ---- Leaflet OSM Map ----
 const leafletMap = L.map('leaflet-map').setView([37.3195, -122.0449], 17);
+leafletMap.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank">Leaflet</a>');
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 21, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap'
 }).addTo(leafletMap);

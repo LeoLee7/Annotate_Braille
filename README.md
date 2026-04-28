@@ -10,6 +10,8 @@ A browser-only companion to [Touch Mapper](https://touch-mapper.org/) that adds 
 
 Open the hosted editor at [https://leolee7.github.io/Annotate_Braille/](https://leolee7.github.io/Annotate_Braille/). The default scene loads a tactile map of the area around UCSC Engineering 2, so you can fetch OSM buildings, attach braille labels, and export a print-ready STL straight from the browser, no install required.
 
+![Editor interface: 3D STL viewer on the left, Leaflet OSM map and label sidebar on the right](interface.jpg)
+
 ## Quick start
 
 1. Open `index.html` in any modern browser.
